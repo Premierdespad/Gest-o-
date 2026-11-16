@@ -448,7 +448,7 @@ window.cobrarExtra = () => openForm('Cobrar serviço extra do proprietário', [
 // ---------- Patrimônio: valor estimado dos animais de criação (só a nossa parte) ----------
 function patrimonio() {
   const eu = socioProprio();
-  const L = DB.list('animais').filter(a => a.status === 'Ativo' && a.posse !== 'Pensão').map(a => {
+  const L = DB.list('animais').filter(a => !['Morto', 'Externo'].includes(a.status) && a.posse !== 'Pensão').map(a => {
     const nossa = eu ? (composicao(a.id)[eu.id] ?? 0) : 100;
     const compra = DB.list('negocios').filter(n => n.animalId === a.id && n.tipo === 'Compra' && (!n.produto || n.produto === 'Animal')).reduce((t, n) => t + Number(n.valor) * ((n.participacoes || []).find(p => p.socioId === eu?.id)?.pct ?? 100) / 100, 0);
     const v = Number(a.valorEstimado) || 0;
@@ -558,6 +558,8 @@ function composicao(animalId, ate = '9999-12-31') {
   if (eu && an && an.status !== 'Externo' && an.posse !== 'Pensão' && !ns.some(n => n.tipo === 'Compra')) c[eu.id] = 100;
   DB.list('negocios').filter(n => n.animalId === animalId && (!n.produto || n.produto === 'Animal') && n.data <= ate).sort((a, b) => a.data.localeCompare(b.data)).forEach(n => {
     (n.participacoes || []).forEach(p => { const fr = Number(n.pctAnimal || 100) * Number(p.pct) / 100; c[p.socioId] = (c[p.socioId] || 0) + (n.tipo === 'Compra' ? fr : -fr); });
+    // venda para um sócio: ele passa a ter a parte comprada · compra de um sócio: ele deixa de ter a parte vendida
+    if (n.contraparteSocioId) c[n.contraparteSocioId] = (c[n.contraparteSocioId] || 0) + (n.tipo === 'Venda' ? 1 : -1) * Number(n.pctAnimal || 100);
   });
   Object.keys(c).forEach(k => { if (Math.abs(c[k]) < 0.001) delete c[k]; });
   return c;
@@ -607,13 +609,14 @@ window.editNegocio = (id, tipoPadrao, extra) => {
       ${id ? '' : field({ k: 'novoNome', l: 'Nome do animal novo (se não cadastrado)' }, '')}
       ${field({ k: 'data', l: 'Data do negócio', t: 'date', req: true }, n.data)}
       ${field({ k: 'contraparte', l: n.tipo === 'Venda' ? 'Comprador' : 'Vendedor' }, n.contraparte)}
+      <div><label id="lb_cps">${n.tipo === 'Venda' ? 'O comprador é sócio cadastrado?' : 'O vendedor é sócio cadastrado?'}</label><select id="f_contraparteSocioId"><option value="">Não (pessoa de fora)</option>${DB.list('socios').filter(x => x.proprio !== 'Sim').map(x => `<option value="${x.id}" ${x.id === n.contraparteSocioId ? 'selected' : ''}>${esc(x.nome)}</option>`).join('')}</select><small class="muted" id="ax_cps"></small></div>
       ${field({ k: 'pctAnimal', l: '% do animal negociado (100 = animal inteiro)', t: 'number', req: true }, n.pctAnimal)}
       ${field({ k: 'comissaoPct', l: 'Comissão / corretagem (%)', t: 'number' }, n.comissaoPct)}
       ${field({ k: 'intermediario', l: 'Corretor / leilão' }, n.intermediario)}
       <div class="full"><label>Condições de pagamento (ex.: 1 × 15.000 PIX de entrada + 40 × 1.100 boleto)</label><div id="grupos">${planoIni.map(linhaGrupo).join('')}</div>
         <div class="row"><button type="button" class="sec" id="addGrupo">+ Condição</button><b id="totalPlano"></b></div>
         ${id ? (n.parcelasLista || []).some(q => q.pagoEm) ? '<p class="muted">Se mudar as condições, as parcelas são refeitas; as que já estão pagas continuam pagas.</p>' : '' : `<label style="margin-top:8px"><input type="checkbox" id="f_quitarVencidas" style="width:auto"> Marcar como pagas as parcelas já vencidas (para lançar negócios antigos)</label>`}</div>
-      <div class="full"><label>Sociedade: participação de cada sócio neste negócio (deve somar 100%)</label><div id="socs">${(n.participacoes.length ? n.participacoes : [{}]).map(linhaSoc).join('')}</div>
+      <div class="full"><label id="lb_soc">Sociedade (deve somar 100%)</label><p class="muted" id="ex_soc" style="margin:0 0 6px;font-size:13px"></p><div id="socs">${(n.participacoes.length ? n.participacoes : [{}]).map(linhaSoc).join('')}</div>
         <div class="row"><button type="button" class="sec" id="addSoc">+ Sócio</button><button type="button" class="lnk" onclick="novoSocio(()=>{})">Cadastrar novo sócio</button><b id="somaPct"></b></div>
         <p class="muted" id="sugestao"></p></div>
       ${field({ k: 'obs', l: 'Observações', t: 'textarea', full: true }, n.obs)}
@@ -630,6 +633,10 @@ window.editNegocio = (id, tipoPadrao, extra) => {
     m.querySelectorAll('.soc').forEach(r => { const p = Number(r.querySelector('input').value) || 0; s += p; r.querySelector('.vl').textContent = brl(liq * p / 100); });
     $('#somaPct', m).innerHTML = ` Soma: <span style="color:${Math.abs(s - 100) < 0.01 ? 'var(--ok)' : 'var(--bad)'}">${pct(s)}</span>`;
     const aid = $('#f_animalId', m).value, isVenda = $('#f_tipo', m).value === 'Venda';
+    $('#lb_soc', m).textContent = isVenda ? 'Quem está VENDENDO — de quem sai a parte e quem recebe o dinheiro (deve somar 100%)' : 'Quem está COMPRANDO — quem paga e fica com a parte comprada (deve somar 100%)';
+    $('#ex_soc', m).textContent = isVenda ? 'Ex.: o haras vende 50% da potra para o RZZ → aqui: Haras 100% · % do animal: 50 · comprador: RZZ (e, se ele for sócio, escolha-o ao lado para ele virar dono dos 50%).' : 'Ex.: o haras e o Roberto compram juntos, meio a meio → aqui: Haras 50% + Roberto 50%.';
+    $('#lb_cps', m).textContent = isVenda ? 'O comprador é sócio cadastrado?' : 'O vendedor é sócio cadastrado?';
+    $('#ax_cps', m).textContent = $('#f_contraparteSocioId', m).value ? (isVenda ? 'Ele passa a ser dono da parte comprada.' : 'Ele deixa de ser dono da parte vendida.') : '';
     const prodAnimal = $('#f_produto', m).value === 'Animal';
     const nn = $('#f_novoNome', m); if (nn) nn.parentNode.style.display = isVenda || !prodAnimal ? 'none' : '';
     ['doadoraId', 'garanhaoId', 'quantidade'].forEach(k => $('#f_' + k, m).parentNode.style.display = prodAnimal ? 'none' : '');
@@ -644,16 +651,22 @@ window.editNegocio = (id, tipoPadrao, extra) => {
     $('#f_pctAnimal', m).value = Math.round(tot * 100) / 100; window._negCalc();
   };
   m.addEventListener('click', e => { if (e.target.id === 'usarComp') usarComp(); });
+  $('#f_contraparteSocioId', m).addEventListener('change', (ev) => { const sc = socio(ev.target.value); if (sc && !$('#f_contraparte', m).value) $('#f_contraparte', m).value = sc.nome; });
   // numa venda nova, ao escolher o animal já preenche a divisão pela composição atual
   $('#f_animalId', m).addEventListener('change', () => { if (!id && $('#f_tipo', m).value === 'Venda') usarComp(); });
   m.addEventListener('input', window._negCalc); m.addEventListener('change', window._negCalc); window._negCalc();
   if (!id && n.tipo === 'Venda' && n.animalId) usarComp();
-  m.querySelector('form').onsubmit = (e) => {
+  m.querySelector('form').onsubmit = async (e) => {
     e.preventDefault();
     const g = (k) => $('#f_' + k, m)?.value ?? '';
     const parts = [...m.querySelectorAll('.soc')].map(r => ({ socioId: r.querySelector('select').value, pct: Number(r.querySelector('input').value) || 0 })).filter(p => p.socioId && p.pct);
     const soma = parts.reduce((a, p) => a + p.pct, 0);
     if (Math.abs(soma - 100) > 0.01) return alert(`A participação dos sócios precisa somar 100% (está em ${pct(soma)}).`);
+    if (g('tipo') === 'Venda' && g('produto') === 'Animal' && g('animalId')) {
+      const comp = composicao(g('animalId')), semParte = parts.filter(p => !(comp[p.socioId] > 0.001) && !(n.participacoes || []).some(q => q.socioId === p.socioId && n.id));
+      if (semParte.length && !(await confirmar(`${semParte.map(p => sname(p.socioId)).join(', ')} não tem parte deste animal hoje, mas está como VENDEDOR.\n\nSe ${semParte.length > 1 ? 'eles estão' : 'ele está'} comprando, deixe o haras (ou quem vende) na Sociedade e escolha o comprador em "O comprador é sócio cadastrado?".\n\nSalvar mesmo assim?`, 'Salvar assim'))) return;
+      if (parts.some(p => p.socioId === g('contraparteSocioId'))) return alert('O comprador não pode estar também entre os vendedores.');
+    }
     let animalId = g('animalId');
     if (!animalId && g('novoNome') && g('tipo') === 'Compra') animalId = DB.upsert('animais', { nome: g('novoNome'), sexo: 'Macho', status: 'Ativo', posse: 'Próprio', pesoRateio: 1, dataEntrada: g('data'), aVenda: 'Não' }).id;
     const produto = g('produto');
@@ -667,7 +680,7 @@ window.editNegocio = (id, tipoPadrao, extra) => {
       const antigas = n.parcelasLista || [];
       parcelasLista = gerarParcelas(plano).map((q, i) => ({ ...q, pagoEm: antigas[i]?.pagoEm || ($('#f_quitarVencidas', m)?.checked && q.vencimento <= today() ? q.vencimento : '') }));
     }
-    const o = { ...n, tipo: g('tipo'), produto, doadoraId: g('doadoraId'), garanhaoId: g('garanhaoId'), quantidade: Number(g('quantidade')) || 1, animalId, data: g('data'), contraparte: g('contraparte'), pctAnimal: Number(g('pctAnimal')) || 100, valor: valorTotal, comissaoPct: Number(g('comissaoPct')) || 0, intermediario: g('intermediario'), plano, parcelasLista, parcelas: parcelasLista.length, primeiroVenc: parcelasLista[0]?.vencimento || g('data'), participacoes: parts, obs: g('obs') };
+    const o = { ...n, contraparteSocioId: produto === 'Animal' ? g('contraparteSocioId') : '', tipo: g('tipo'), produto, doadoraId: g('doadoraId'), garanhaoId: g('garanhaoId'), quantidade: Number(g('quantidade')) || 1, animalId, data: g('data'), contraparte: g('contraparte'), pctAnimal: Number(g('pctAnimal')) || 100, valor: valorTotal, comissaoPct: Number(g('comissaoPct')) || 0, intermediario: g('intermediario'), plano, parcelasLista, parcelas: parcelasLista.length, primeiroVenc: parcelasLista[0]?.vencimento || g('data'), participacoes: parts, obs: g('obs') };
     DB.upsert('negocios', o); lancarFinanceiro(o);
     // movimentação e situação do animal
     if (!animalId) { m.remove(); render(); return; }
