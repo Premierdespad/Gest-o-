@@ -4,7 +4,7 @@
 //  - com servidor (server/crina_server.py): no servidor, em /api/arquivo/<id>;
 //  - sem servidor: no IndexedDB deste navegador (aguenta PDFs e fotos, ao contrário do localStorage).
 const ANEXO_TIPOS = ['Boleto', 'Comprovante de pagamento', 'Contrato', 'Nota / recibo', 'GTA', 'Registro / documento', 'Exame', 'Foto', 'Outro'];
-const ANEXO_MAX = 25 * 1024 * 1024;
+const ANEXO_MAX = 20 * 1024 * 1024;
 
 const ArqLocal = {
   _db: null,
@@ -23,18 +23,28 @@ const ArqLocal = {
   apagar(id) { return this.op('readwrite', s => s.delete(id)); },
 };
 const noServidor = () => typeof SYNC !== 'undefined' && SYNC.modo === 'servidor';
+const naNuvem = () => typeof NUVEM !== 'undefined' && NUVEM.ativo && NUVEM.assets;
 async function salvarArquivo(id, blob) {
+  if (naNuvem()) {
+    const tipo = blob.type || (/\.pdf$/i.test(blob.name || '') ? 'application/pdf' : '');
+    try { const r = await comRetentativa(() => NUVEM.assets.upload(blob, tipo && tipo !== blob.type ? { type: tipo } : undefined)); return { assetId: r.id }; }
+    catch (e) { throw new Error(e?.code === 'unsupported_type' ? 'na nuvem só dá para anexar PDF ou foto (JPG, PNG)' : e?.code === 'too_large' ? 'arquivo maior que 20 MB' : (e?.message || e?.code || 'erro')); }
+  }
   if (!noServidor()) return ArqLocal.salvar(id, blob);
   const r = await fetch('api/arquivo/' + id, { method: 'PUT', headers: { Authorization: 'Bearer ' + token(), 'Content-Type': blob.type || 'application/octet-stream' }, body: blob });
   if (!r.ok) throw new Error('o servidor recusou o arquivo (' + r.status + ')');
 }
 async function lerArquivo(id) {
+  const x = DB.get('anexos', id);
+  if (x && x.assetId) { const r = await fetch('/_blob/' + x.assetId); if (!r.ok) throw new Error('arquivo não encontrado na nuvem'); return r.blob(); }
   if (!noServidor()) return ArqLocal.ler(id);
   const r = await fetch('api/arquivo/' + id, { headers: { Authorization: 'Bearer ' + token() } });
   if (!r.ok) throw new Error('arquivo não encontrado no servidor');
   return r.blob();
 }
 async function apagarArquivo(id) {
+  const x = DB.get('anexos', id);
+  if (x && x.assetId) { if (typeof NUVEM !== 'undefined' && NUVEM.assets) await NUVEM.assets.delete(x.assetId); return; }
   if (!noServidor()) return ArqLocal.apagar(id);
   await fetch('api/arquivo/' + id, { method: 'DELETE', headers: { Authorization: 'Bearer ' + token() } });
 }
@@ -59,7 +69,7 @@ window.abaAnexos = (a) => {
       ['Obs.', x => esc(x.obs || '')],
     ], vis, x => `<button class="lnk" onclick="verAnexo('${x.id}')">Ver</button><button class="lnk" onclick="baixarAnexo('${x.id}')">Baixar</button><button class="lnk" onclick="editarAnexo('${x.id}')">Editar</button><button class="del" onclick="excluirAnexo('${x.id}')">Excluir</button>`)}
     ${negs.length ? '' : '<p class="muted">Dica: com uma compra ou venda registrada para este animal, dá para ligar cada boleto à parcela certa.</p>'}
-    <p class="muted">${noServidor() ? 'Os arquivos ficam guardados no servidor.' : 'Os arquivos ficam guardados neste navegador. Use “Exportar backup” em Configurações para levar junto com os dados.'}</p>`;
+    <p class="muted">${naNuvem() ? 'Os arquivos ficam guardados na nuvem e abrem em qualquer aparelho.' : noServidor() ? 'Os arquivos ficam guardados no servidor.' : 'Os arquivos ficam guardados neste navegador. Use “Exportar backup” em Configurações para levar junto com os dados.'}</p>`;
 };
 
 function camposAnexo(animalId, x = {}) {
@@ -82,7 +92,7 @@ function lerCamposAnexo(m) {
 window.novoAnexo = (animalId, pre = {}) => {
   const m = document.createElement('div'); m.className = 'modal';
   m.innerHTML = `<form class="box"><div class="top"><h3 style="margin:0">📎 Anexar em ${esc(aname(animalId))}</h3><button type="button" class="sec" data-x>Fechar</button></div>
-    <label>Arquivos (PDF ou foto — pode escolher vários de uma vez)</label><input id="ax_arq" type="file" multiple accept="application/pdf,image/*,.doc,.docx,.xls,.xlsx" required style="margin-bottom:12px">
+    <label>Arquivos (PDF ou foto — pode escolher vários de uma vez)</label><input id="ax_arq" type="file" multiple accept="${naNuvem() ? 'application/pdf,image/png,image/jpeg,image/webp' : 'application/pdf,image/*,.doc,.docx,.xls,.xlsx'}" required style="margin-bottom:12px">
     ${camposAnexo(animalId, pre)}
     <p class="muted" style="margin-top:8px">Se escolher vários boletos de uma vez com o nº da parcela preenchido, eles são numerados em sequência (5, 6, 7...).</p>
     <p id="ax_msg" class="muted"></p>
@@ -92,7 +102,7 @@ window.novoAnexo = (animalId, pre = {}) => {
   m.querySelector('form').onsubmit = async (e) => {
     e.preventDefault();
     const arqs = [...m.querySelector('#ax_arq').files]; if (!arqs.length) return;
-    const grandes = arqs.filter(f => f.size > ANEXO_MAX); if (grandes.length) return alert(`Arquivo grande demais (máx. 25 MB): ${grandes.map(f => f.name).join(', ')}`);
+    const grandes = arqs.filter(f => f.size > ANEXO_MAX); if (grandes.length) return alert(`Arquivo grande demais (máx. 20 MB): ${grandes.map(f => f.name).join(', ')}`);
     const base = lerCamposAnexo(m), msg = m.querySelector('#ax_msg'), btn = m.querySelector('[type=submit]'); btn.disabled = true;
     try {
       for (let i = 0; i < arqs.length; i++) {
@@ -100,8 +110,8 @@ window.novoAnexo = (animalId, pre = {}) => {
         const parcela = base.parcela ? base.parcela + i : '';
         const venc = base.parcela && base.negocioId ? (DB.get('negocios', base.negocioId)?.parcelasLista?.[parcela - 1]?.vencimento || (i ? '' : base.vencimento)) : base.vencimento;
         const id = 'anx-' + uid();
-        await salvarArquivo(id, f);
-        DB.upsert('anexos', { id, animalId, nome: f.name, mime: f.type || '', tamanho: f.size, data: today(), ...base, parcela, vencimento: venc });
+        const extra = (await salvarArquivo(id, f)) || {};
+        DB.upsert('anexos', { id, animalId, nome: f.name, mime: f.type || '', tamanho: f.size, data: today(), ...base, parcela, vencimento: venc, ...extra });
       }
       m.remove(); render();
     } catch (err) { btn.disabled = false; msg.textContent = ''; alert('Não consegui salvar o arquivo: ' + err.message); }

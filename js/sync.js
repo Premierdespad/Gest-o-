@@ -58,10 +58,11 @@ async function enviar() {
   if (SYNC.pendente) { SYNC.pendente = false; enviar(); }
 }
 
-function modoLocal(motivo) { SYNC.modo = 'local'; SYNC.pronto = true; atualizarIndicador(); if (motivo) console.warn(motivo); }
+function modoLocal(motivo) { if (SYNC.modo === 'nuvem') return; SYNC.modo = 'local'; SYNC.pronto = true; atualizarIndicador(); if (motivo) console.warn(motivo); }
 
 function atualizarIndicador(txt) {
   const el = document.getElementById('syncStatus'); if (!el) return;
+  if (SYNC.modo === 'nuvem') return typeof indicadorNuvem === 'function' && indicadorNuvem();
   el.innerHTML = txt || (SYNC.modo === 'servidor' ? '<span style="color:#7fd19b">●</span> Conectado ao servidor' : SYNC.modo === 'local' ? '<span style="color:#d9a066">●</span> Modo local (só neste navegador)' : 'Conectando...');
 }
 
