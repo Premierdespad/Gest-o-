@@ -15,7 +15,7 @@ const DB = {
     if (!this.data) { this.data = window.claude ? emptyDb() : seed(); this.save(); }
     // migração de versões anteriores
     (this.data.animais || []).forEach(a => { a.posse = a.posse || 'Próprio'; if (!a.pesoRateio) a.pesoRateio = 1; });
-    this.data.negocios = this.data.negocios || []; this.data.socios = this.data.socios || []; this.data.anexos = this.data.anexos || [];
+    this.data.negocios = this.data.negocios || []; this.data.socios = this.data.socios || []; this.data.anexos = this.data.anexos || []; this.data.eventos = this.data.eventos || [];
     if (!this.data.centrosCusto.includes('Pensão')) this.data.centrosCusto.unshift('Pensão');
     return this.data;
   },
@@ -42,7 +42,7 @@ function emptyDb() {
     config: { haras: 'Meu Haras', usuarioAtual: null },
     animais: [], biometria: [], movimentacoes: [], reproducao: [], sanidade: [],
     financeiro: [], centrosCusto: ['Pensão', 'Reprodução', 'Alimentação', 'Sanidade', 'Pessoal', 'Instalações', 'Vendas', 'Eventos'],
-    estoque: [], negocios: [], socios: [], anexos: [], usuarios: [{ id: uid(), nome: 'Administrador', email: 'admin@haras.local', perfil: 'Administrador', ativo: 'Sim' }],
+    estoque: [], negocios: [], socios: [], anexos: [], eventos: [], usuarios: [{ id: uid(), nome: 'Administrador', email: 'admin@haras.local', perfil: 'Administrador', ativo: 'Sim' }],
     site: { titulo: 'Meu Haras', slogan: 'Criação com tradição e qualidade', sobre: '', telefone: '', email: '', endereco: '', instagram: '', cor: '#7a4b2a', banner: '' },
   };
 }

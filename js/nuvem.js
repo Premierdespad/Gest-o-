@@ -3,7 +3,7 @@
 // local (abre rápido e aguenta falta de internet), mas a nuvem é a fonte da verdade e todos os aparelhos
 // recebem as mudanças ao vivo. Os anexos vão para o armazenamento de arquivos do link.
 const NUVEM = { db: null, assets: null, ativo: false, iniciado: null, sinc: {}, sincMeta: {}, enviando: false, sujo: false, pendentes: 0, erro: '', subs: [] };
-const COLS_NUVEM = ['animais', 'biometria', 'movimentacoes', 'reproducao', 'sanidade', 'financeiro', 'estoque', 'negocios', 'socios', 'anexos', 'usuarios'];
+const COLS_NUVEM = ['animais', 'biometria', 'movimentacoes', 'reproducao', 'sanidade', 'financeiro', 'estoque', 'negocios', 'socios', 'anexos', 'usuarios', 'eventos'];
 const META_NUVEM = ['config', 'site', 'centrosCusto'];
 
 // JSON com chaves em ordem: a mesma informação sempre gera o mesmo texto

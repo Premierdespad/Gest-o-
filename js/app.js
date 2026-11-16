@@ -165,16 +165,18 @@ const V = {};
 
 V.dashboard = () => {
   const ativos = DB.list('animais').filter(a => a.status === 'Ativo');
-  const gest = DB.list('reproducao').filter(r => r.status === 'Gestante');
+  if (typeof migrarRepro === 'function') migrarRepro();
+  const sitE = typeof situacaoEgua === 'function' ? eguasRepro().map(a => ({ a, st: situacaoEgua(a.id) })) : [];
+  const gest = sitE.filter(x => x.st.status === 'Prenhe');
   const alertas = pendenciasSanitarias().filter(s => daysUntil(s.proxima) <= 30);
   const mes = today().slice(0, 7), fin = DB.list('financeiro').filter(f => f.data.startsWith(mes));
   const rec = fin.filter(f => f.tipo === 'Receita').reduce((s, f) => s + f.valor, 0), desp = fin.filter(f => f.tipo === 'Despesa').reduce((s, f) => s + f.valor, 0);
-  const partos = gest.map(r => ({ ...r, prev: previsaoParto(r) })).filter(r => r.prev).sort((a, b) => a.prev.localeCompare(b.prev));
+  const partos = gest.filter(x => x.st.prevParto).sort((x, y) => x.st.prevParto.localeCompare(y.st.prevParto));
   const pend = DB.list('financeiro').filter(f => f.status === 'Pendente'), somaF = (arr, t) => arr.filter(f => f.tipo === t).reduce((s, f) => s + Number(f.valor), 0);
   const pendMes = pend.filter(f => f.data.startsWith(mes)), atrasadas = pend.filter(f => f.data < today());
   const nAte2 = ativos.filter(a => a.nascimento && daysUntil(a.nascimento) > -730).length;
   const baixo = DB.list('estoque').filter(e => Number(e.quantidade) <= Number(e.minimo));
-  const dgPend = DB.list('reproducao').filter(r => r.resultadoDG === 'Aguardando');
+  const dgPend = sitE.filter(x => x.st.status === 'Aguardando DG' && x.st.dias >= 14);
   const porCat = {}; ativos.forEach(a => porCat[a.categoria || 'Sem categoria'] = (porCat[a.categoria || 'Sem categoria'] || 0) + 1);
   const proprios = ativos.filter(a => a.posse !== 'Pensão');
   return `<div class="kpis">
@@ -189,8 +191,8 @@ V.dashboard = () => {
   ${pode('financeiro') ? `<div class="kpis"><div class="kpi"><small>A receber em ${mes.slice(5)}/${mes.slice(0, 4)}</small><b style="color:var(--ok)">${brl(somaF(pendMes, 'Receita'))}</b></div><div class="kpi"><small>A pagar em ${mes.slice(5)}/${mes.slice(0, 4)}</small><b style="color:var(--bad)">${brl(somaF(pendMes, 'Despesa'))}</b></div><div class="kpi" style="cursor:pointer" onclick="state.crTab='agenda';state.agSit='atrasadas';location.hash='criacao'"><small>Parcelas atrasadas</small><b style="color:${atrasadas.length ? 'var(--bad)' : 'inherit'}">${atrasadas.length}</b><small>${brl(somaF(atrasadas, 'Receita'))} a receber · ${brl(somaF(atrasadas, 'Despesa'))} a pagar</small></div></div>` : ''}
   <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(320px,1fr))">
     <div class="card"><h3>Agenda sanitária</h3>${table([['Animal', s => esc(aname(s.animalId))], ['Tipo', s => esc(s.tipo)], ['Produto', s => esc(s.produto)], ['Quando', s => fdate(s.proxima) + ' ' + statusTag(daysUntil(s.proxima))]], alertas.slice(0, 8))}</div>
-    <div class="card"><h3>Previsão de partos</h3>${table([['Égua', r => r.receptoraId ? `${esc(aname(r.receptoraId))} <span class="tag">receptora</span><br><small class="muted">embrião de ${esc(aname(r.eguaId))}</small>` : esc(aname(r.eguaId))], ['Garanhão', r => esc(aname(r.garanhaoId))], ['Previsão', r => fdate(r.prev) + ` <span class="muted">(${daysUntil(r.prev)}d)</span>`]], partos)}
-      ${dgPend.length ? `<p><span class="tag warn">${dgPend.length} diagnóstico(s) de gestação pendente(s)</span></p>` : ''}</div>
+    <div class="card"><h3>Previsão de partos</h3>${table([['Égua', x => `<a href="#reproducao" onclick="state.reproEgua='${x.a.id}'">${esc(x.a.nome)}</a>` + (x.st.ciclo?.te ? `<br><small class="muted">embrião de ${esc(aname(x.st.doadoraId))}</small>` : '')], ['Garanhão', x => esc(x.st.garanhao || '')], ['Previsão', x => fdate(x.st.prevParto) + ` <span class="muted">(${daysUntil(x.st.prevParto)}d)</span>`]], partos)}
+      ${dgPend.length ? `<p><a href="#reproducao" onclick="state.rFiltro='dg';state.reproEgua=null"><span class="tag warn">${dgPend.length} égua(s) já podem fazer o diagnóstico de gestação</span></a></p>` : ''}</div>
     <div class="card"><h3>Plantel por categoria</h3>${Object.entries(porCat).map(([k, v]) => `<div style="margin:8px 0"><div class="row" style="justify-content:space-between"><span>${esc(k)}</span><b>${v}</b></div><div class="bar"><i style="width:${v / ativos.length * 100}%"></i></div></div>`).join('') || '<p class="muted">Sem animais.</p>'}</div>
     <div class="card"><h3>Estoque abaixo do mínimo</h3>${table([['Item', e => esc(e.item)], ['Qtd.', e => `${e.quantidade} ${esc(e.unidade || '')}`], ['Mínimo', e => e.minimo]], baixo)}</div>
   </div>`;
@@ -257,7 +259,7 @@ V.animal = () => {
     table([['Data', b => fdate(b.data)], ['Tipo', b => `<span class="tag ${b.tipo === 'Entrada' ? 'ok' : 'warn'}">${b.tipo}</span>`], ['Motivo', b => esc(b.motivo)], ['Origem/destino', b => esc(b.origemDestino)], ['GTA', b => esc(b.gta)]], mov, b => `<button class="del" onclick="del('movimentacoes','${b.id}')">Excluir</button>`);
   if (state.tab === 'sanidade') body = `<button onclick="openForm('Novo registro sanitário',F_SAN,{animalId:'${a.id}',data:today()},o=>DB.upsert('sanidade',o))">+ Registro</button><br><br>` +
     table([['Data', s => fdate(s.data)], ['Tipo', s => esc(s.tipo)], ['Produto', s => esc(s.produto)], ['Próxima', s => s.proxima ? fdate(s.proxima) : ''], ['Responsável', s => esc(s.responsavel)], ['Obs.', s => esc(s.obs)]], san, s => `<button class="del" onclick="del('sanidade','${s.id}')">Excluir</button>`);
-  if (state.tab === 'reproducao') body = table([['Cobertura', r => fdate(r.dataCobertura)], ['Égua', r => esc(aname(r.eguaId))], ['Garanhão', r => esc(aname(r.garanhaoId))], ['Método', r => esc(r.metodo)], ['DG', r => esc(r.resultadoDG)], ['Situação', r => esc(r.status)]], rep);
+  if (state.tab === 'reproducao') body = a.sexo === 'Fêmea' && typeof timelineEgua === 'function' ? timelineEgua(a.id) : typeof EV !== 'undefined' ? table([['Data', e => fdate(e.data)], ['Égua', e => `<a href="#reproducao" onclick="state.reproEgua='${e.eguaId}'">${esc(aname(e.eguaId))}</a>`], ['Registro', e => (EV[e.tipo]?.ic || '') + ' ' + (EV[e.tipo]?.nome || e.tipo)], ['Detalhe', e => esc(e.metodo || e.resultado || '')]], DB.list('eventos').filter(e => e.garanhaoId === a.id).sort((x, y) => y.data.localeCompare(x.data))) : table([['Cobertura', r => fdate(r.dataCobertura)], ['Égua', r => esc(aname(r.eguaId))], ['Garanhão', r => esc(aname(r.garanhaoId))], ['Método', r => esc(r.metodo)], ['DG', r => esc(r.resultadoDG)], ['Situação', r => esc(r.status)]], rep);
   if (state.tab === 'financeiro') {
     const ini = a.dataEntrada || a.nascimento || '2000-01-01', c = calcCustos(ini, today())[a.id] || { dias: 0, diretos: 0, rateio: 0, receitas: 0, itens: [] };
     const cm = calcCustos(today().slice(0, 7) + '-01', today())[a.id] || { diretos: 0, rateio: 0, receitas: 0 };
@@ -269,58 +271,11 @@ V.animal = () => {
       table([['Data', i => fdate(i.data)], ['Origem', i => esc(i.origem)], ['Descrição', i => esc(i.desc)], ['Valor', i => `<span style="color:${i.v >= 0 ? 'var(--ok)' : 'var(--bad)'}">${brl(i.v)}</span>`]], c.itens.slice().sort((x, y) => y.data.localeCompare(x.data)).slice(0, 200));
   }
   return `<div class="card"><div class="row" style="justify-content:space-between"><div><button class="sec" onclick="state.animalId=null;render()">← Voltar</button> <b style="font-size:20px;margin-left:8px">${esc(a.nome)}</b></div>
-    <div class="row"><button class="sec" onclick="verABCCMM('${a.id}')" title="Copia o nome e abre a busca da ABCCMM">🔎 ABCCMM</button>${a.sexo === 'Fêmea' && a.status === 'Ativo' ? `<button class="sec" onclick="openForm('Nova cobertura',F_REPRO,{eguaId:'${a.id}',dataCobertura:today(),resultadoDG:'Aguardando',status:'Coberta'},o=>DB.upsert('reproducao',o))">+ Cobertura</button><button class="sec" onclick="editNegocio(null,'Venda',{produto:'Embrião',doadoraId:'${a.id}'})">Vender embrião</button>` : ''}${a.status === 'Ativo' && a.posse !== 'Pensão' ? `<button class="sec" onclick="editNegocio(null,'Venda',{animalId:'${a.id}'})">Registrar venda</button>` : ''}<button class="sec" onclick="window.print()">Imprimir ficha</button><button onclick="editAnimal('${a.id}')">Editar</button></div></div><br>
+    <div class="row"><button class="sec" onclick="verABCCMM('${a.id}')" title="Copia o nome e abre a busca da ABCCMM">🔎 ABCCMM</button>${a.sexo === 'Fêmea' && a.status === 'Ativo' ? `<button class="sec" onclick="novoEvento('${a.id}')">+ Reprodução</button><button class="sec" onclick="editNegocio(null,'Venda',{produto:'Embrião',doadoraId:'${a.id}'})">Vender embrião</button>` : ''}${a.status === 'Ativo' && a.posse !== 'Pensão' ? `<button class="sec" onclick="editNegocio(null,'Venda',{animalId:'${a.id}'})">Registrar venda</button>` : ''}<button class="sec" onclick="window.print()">Imprimir ficha</button><button onclick="editAnimal('${a.id}')">Editar</button></div></div><br>
     <div class="tabs">${tabs.map(([k, l]) => `<button class="${state.tab === k ? 'on' : ''}" onclick="state.tab='${k}';render()">${l}</button>`).join('')}</div>${body}</div>`;
 };
 
-function situacaoReceptora(r) {
-  const dt = c => c.dataInovulacao || c.dataCobertura || '';
-  const ult = DB.list('reproducao').filter(c => c.receptoraId === r.id).sort((a, b) => dt(b).localeCompare(dt(a)))[0];
-  if (!ult) return { ordem: 3, rotulo: 'Disponível', cls: '', info: 'Ainda sem inovulação registrada' };
-  const emb = `Embrião de ${aname(ult.eguaId)} × ${aname(ult.garanhaoId) || '?'}`;
-  if (ult.dataParto || ult.status === 'Parida') return { ordem: 2, rotulo: 'Parida', cls: '', cob: ult, info: (ult.dataParto ? `Pariu em ${fdate(ult.dataParto)} (há ${-daysUntil(ult.dataParto)} dias)` : 'Pariu') + (ult.potroId ? ` · potro: ${aname(ult.potroId)}` : '') };
-  if (ult.status === 'Gestante') { const pv = previsaoParto(ult); return { ordem: 0, rotulo: 'Prenhe', cls: 'ok', cob: ult, info: emb + (pv ? ` · parto previsto ${fdate(pv)} (${daysUntil(pv) >= 0 ? 'faltam ' + daysUntil(pv) : 'passou ' + -daysUntil(pv)} dias)` : '') }; }
-  if (ult.status === 'Coberta' || ult.resultadoDG === 'Aguardando') return { ordem: 1, rotulo: 'Aguardando diagnóstico', cls: 'warn', cob: ult, info: emb + (ult.dataInovulacao ? ` · inovulada em ${fdate(ult.dataInovulacao)} (há ${-daysUntil(ult.dataInovulacao)} dias)` : '') };
-  return { ordem: 3, rotulo: 'Disponível', cls: '', cob: ult, info: `Última: ${ult.resultadoDG || ult.status} (${fdate(dt(ult))})` };
-}
-V.receptoras = () => {
-  const rs = DB.list('animais').filter(a => a.categoria === 'Receptora' && a.status === 'Ativo').map(r => ({ r, s: situacaoReceptora(r) })).sort((a, b) => a.s.ordem - b.s.ordem || a.r.nome.localeCompare(b.r.nome));
-  const conta = o => rs.filter(x => x.s.ordem === o).length;
-  return `<div class="kpis"><div class="kpi"><small>Receptoras</small><b>${rs.length}</b></div><div class="kpi"><small>Prenhes</small><b style="color:var(--ok)">${conta(0)}</b></div><div class="kpi"><small>Aguardando diagnóstico</small><b>${conta(1)}</b></div><div class="kpi"><small>Disponíveis</small><b>${conta(3)}</b></div></div>
-  <div class="card">${table([['Receptora', x => `<a href="#" onclick="location.hash='animais';setTimeout(()=>{state.animalId='${x.r.id}';render()});return false"><b>${esc(x.r.nome)}</b></a>`], ['Situação', x => `<span class="tag ${x.s.cls}">${x.s.rotulo}</span>`], ['Detalhes', x => esc(x.s.info)]], rs,
-    x => (x.s.cob ? `<button class="lnk" onclick="openForm('Editar transferência',F_REPRO,DB.get('reproducao','${x.s.cob.id}'),o=>DB.upsert('reproducao',o))">Abrir</button>` : '') + (x.s.ordem >= 2 ? `<button class="lnk" onclick="openForm('Registrar inovulação',F_REPRO,{metodo:'Transferência de embrião',receptoraId:'${x.r.id}',dataInovulacao:today(),resultadoDG:'Aguardando',status:'Coberta'},o=>DB.upsert('reproducao',o))">+ Inovulação</button>` : ''))}
-  ${rs.length ? '' : '<p class="muted">Cadastre as receptoras em Animais com a categoria “Receptora”.</p>'}</div>`;
-};
-V.reproducao = () => {
-  if (state.rtab === 'receptoras') return abasRepro() + V.receptoras();
-  return abasRepro() + V.coberturas();
-};
-const abasRepro = () => `<div class="tabs">${[['coberturas', 'Coberturas'], ['receptoras', 'Receptoras']].map(([k, l]) => `<button class="${(state.rtab || 'coberturas') === k ? 'on' : ''}" onclick="state.rtab='${k}';render()">${l}</button>`).join('')}</div>`;
-V.coberturas = () => {
-  const dt = r => r.dataCobertura || r.dataInovulacao || '';
-  const rows = DB.list('reproducao').slice().sort((a, b) => dt(b).localeCompare(dt(a)));
-  const st = (r) => { const c = { Gestante: 'ok', Parida: 'ok', Vazia: 'bad', Aborto: 'bad', Coberta: 'warn' }[r.status]; return `<span class="tag ${c || ''}">${esc(r.status)}</span>`; };
-  const cnt = (s) => rows.filter(r => r.status === s).length;
-  const dgs = rows.filter(r => r.resultadoDG && r.resultadoDG !== 'Aguardando'); const taxa = dgs.length ? Math.round(dgs.filter(r => r.resultadoDG === 'Prenhe' || r.resultadoDG === 'Gemelar').length / dgs.length * 100) : 0;
-  return `<div class="kpis"><div class="kpi"><small>Cobertas (aguardando DG)</small><b>${cnt('Coberta')}</b></div><div class="kpi"><small>Gestantes</small><b>${cnt('Gestante')}</b></div><div class="kpi"><small>Paridas</small><b>${cnt('Parida')}</b></div><div class="kpi"><small>Taxa de prenhez</small><b>${taxa}%</b></div></div>
-  <div class="card">${table([
-    ['Égua', r => esc(aname(r.eguaId)) + (r.receptoraId ? `<br><small class="muted">receptora: ${esc(aname(r.receptoraId))}</small>` : '')], ['Garanhão', r => esc(aname(r.garanhaoId))], ['Método', r => esc(r.metodo)],
-    ['Cobertura', r => dt(r) ? fdate(dt(r)) + `<br><small class="muted">${daysUntil(dt(r)) * -1} dias${!r.dataCobertura ? ' (inovulação)' : ''}</small>` : '—'],
-    ['DG', r => esc(r.resultadoDG || '') + (r.dataDG ? `<br><small class="muted">${fdate(r.dataDG)}</small>` : (r.resultadoDG === 'Aguardando' && dt(r) ? `<br><small class="muted">sugerido ${fdate(addDays(dt(r), 14))}</small>` : ''))],
-    ['Previsão parto', r => previsaoParto(r) ? fdate(previsaoParto(r)) : (r.dataParto ? 'Pariu ' + fdate(r.dataParto) : '—')],
-    ['Situação', st],
-  ], rows, r => `${r.status === 'Gestante' ? `<button class="lnk" onclick="registrarParto('${r.id}')">Registrar parto</button>` : ''}<button class="lnk" onclick="openForm('Editar evento reprodutivo',F_REPRO,DB.get('reproducao','${r.id}'),o=>DB.upsert('reproducao',o))">Editar</button><button class="del" onclick="del('reproducao','${r.id}')">Excluir</button>`)}</div>`;
-};
-window.registrarParto = (id) => {
-  const r = DB.get('reproducao', id);
-  openForm('Registrar parto e cadastrar potro', [{ k: 'dataParto', l: 'Data do parto', t: 'date', req: true }, { k: 'nome', l: 'Nome do potro', req: true }, { k: 'sexo', l: 'Sexo', t: 'select', opts: ['Macho', 'Fêmea'], req: true }, { k: 'pelagem', l: 'Pelagem' }, { k: 'obs', l: 'Observações do parto', t: 'textarea', full: true }],
-    { dataParto: today() }, o => {
-      const mae = animal(r.eguaId);
-      const potro = DB.upsert('animais', { nome: o.nome, sexo: o.sexo, pelagem: o.pelagem, nascimento: o.dataParto, raca: mae?.raca, paiId: r.garanhaoId, maeId: r.eguaId, categoria: o.sexo === 'Macho' ? 'Potro' : 'Potra', status: 'Ativo', aVenda: 'Não', criador: DB.data.config.haras });
-      DB.upsert('movimentacoes', { animalId: potro.id, tipo: 'Entrada', data: o.dataParto, motivo: 'Nascimento', origemDestino: DB.data.config.haras });
-      DB.upsert('reproducao', { ...r, status: 'Parida', dataParto: o.dataParto, potroId: potro.id, obs: [r.obs, o.obs].filter(Boolean).join(' | ') });
-    });
-};
+// Telas de reprodução: ver js/reproducao.js (histórico por égua)
 
 V.sanidade = () => {
   const rows = DB.list('sanidade').slice().sort((a, b) => b.data.localeCompare(a.data));
@@ -538,7 +493,7 @@ V.relatorios = () => {
   const rels = [['plantel', 'Plantel'], ['vacinal', 'Calendário sanitário'], ['reprodutivo', 'Reprodutivo'], ['financeiro', 'Financeiro anual'], ['vendas', 'Animais à venda']];
   if (r === 'plantel') out = table([['Nome', a => esc(a.nome)], ['Registro', a => esc(a.registro)], ['Sexo', a => esc(a.sexo)], ['Nascimento', a => fdate(a.nascimento)], ['Raça', a => esc(a.raca)], ['Pelagem', a => esc(a.pelagem)], ['Pai', a => esc(aname(a.paiId))], ['Mãe', a => esc(aname(a.maeId))], ['Situação', a => esc(a.status)]], DB.list('animais').filter(a => a.status !== 'Externo'));
   if (r === 'vacinal') out = table([['Animal', s => esc(aname(s.animalId))], ['Tipo', s => esc(s.tipo)], ['Produto', s => esc(s.produto)], ['Última', s => fdate(s.data)], ['Próxima', s => fdate(s.proxima)], ['Status', s => statusTag(daysUntil(s.proxima))]], DB.list('sanidade').filter(s => s.proxima).sort((a, b) => a.proxima.localeCompare(b.proxima)));
-  if (r === 'reprodutivo') { const by = {}; DB.list('reproducao').forEach(x => { const g = aname(x.garanhaoId) || '—'; by[g] = by[g] || { c: 0, p: 0, n: 0 }; by[g].c++; if (['Prenhe', 'Gemelar'].includes(x.resultadoDG)) by[g].p++; if (x.status === 'Parida') by[g].n++; });
+  if (r === 'reprodutivo') { const by = {}; DB.list('animais').filter(a => a.sexo === 'Fêmea').flatMap(a => ciclosDe(a.id)).forEach(x => { const g = x.garanhao || '—'; by[g] = by[g] || { c: 0, p: 0, n: 0 }; by[g].c++; if (x.dgPos) by[g].p++; if (x.parto) by[g].n++; });
     out = table([['Garanhão', ([g]) => esc(g)], ['Coberturas', ([, v]) => v.c], ['Prenhezes', ([, v]) => v.p], ['Nascimentos', ([, v]) => v.n], ['Taxa de prenhez', ([, v]) => Math.round(v.p / v.c * 100) + '%']], Object.entries(by)); }
   if (r === 'financeiro') { const ano = today().slice(0, 4); const ms = [...Array(12)].map((_, i) => `${ano}-${String(i + 1).padStart(2, '0')}`);
     const v = (m, t) => DB.list('financeiro').filter(f => f.data.startsWith(m) && f.tipo === t).reduce((s, f) => s + Number(f.valor), 0);
@@ -836,7 +791,7 @@ V.pensao = () => {
 // ---------- Ações do topo por módulo ----------
 const ACOES = {
   animais: () => state.animalId ? '' : `<button onclick="editAnimal()">+ Novo animal</button>`,
-  reproducao: () => `<button onclick="openForm('Nova cobertura / inseminação',F_REPRO,{dataCobertura:today(),resultadoDG:'Aguardando',status:'Coberta'},o=>DB.upsert('reproducao',o))">+ Nova cobertura</button>`,
+  reproducao: () => `<button onclick="novoEvento(state.reproEgua || '')">+ Novo registro</button>`,
   sanidade: () => `<button class="sec" onclick="aplicacaoLote()">Aplicação em lote</button><button onclick="openForm('Novo registro sanitário',F_SAN,{data:today()},o=>DB.upsert('sanidade',o))">+ Novo registro</button>`,
   financeiro: () => `<button onclick="openForm('Novo lançamento',F_FIN(),{data:today(),tipo:'Despesa',status:'Pago'},o=>DB.upsert('financeiro',o))">+ Novo lançamento</button>`,
   pensao: () => `<button class="sec" onclick="cobrarExtra()">Cobrar serviço extra</button><button onclick="gerarCobrancas()">Gerar cobranças de pensão do mês</button>`,
@@ -850,7 +805,7 @@ function render() {
   if (state.view === 'negocios' || state.view === 'custos') state.view = 'criacao';
   if (!pode(state.view)) state.view = 'dashboard';
   const u = usuarioAtual();
-  $('#nav').innerHTML = MODULOS.filter(([k]) => pode(k)).map(([k, l]) => `<a href="#${k}" class="${state.view === k ? 'on' : ''}">${l}</a>`).join('');
+  $('#nav').innerHTML = MODULOS.filter(([k]) => pode(k)).map(([k, l]) => `<a href="#${k}" class="${state.view === k ? 'on' : ''}" onclick="state.reproEgua=null;if(location.hash==='#${k}'){state.animalId=null;render()}">${l}</a>`).join('');
   $('#user').innerHTML = `<label style="color:#bfae9c">Usuário conectado</label><select onchange="DB.data.config.usuarioAtual=this.value;DB.save();render()">${DB.list('usuarios').filter(x => x.ativo !== 'Não').map(x => `<option value="${x.id}" ${x.id === u.id ? 'selected' : ''}>${esc(x.nome)} (${esc(x.perfil)})</option>`).join('')}</select>`;
   $('#harasNome').textContent = DB.data.config.haras;
   $('#title').textContent = MODULOS.find(m => m[0] === state.view)[1];
@@ -862,4 +817,5 @@ function render() {
 }
 window.addEventListener('hashchange', () => { state.view = location.hash.slice(1) || 'dashboard'; state.animalId = null; state.filtro = ''; render(); });
 state.view = location.hash.slice(1) || 'dashboard';
-render();
+// primeira tela só depois de carregar todos os módulos (reprodução, anexos, nuvem...)
+if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', render); else render();
