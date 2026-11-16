@@ -257,7 +257,8 @@ V.animal = () => {
     table([['Data', b => fdate(b.data)], ['Peso (kg)', b => b.peso], ['Altura (m)', b => b.altura], ['Torácico (m)', b => b.toracico], ['Canela (m)', b => b.canela], ['Escore', b => b.escore ?? '']], bio, b => `<button class="del" onclick="del('biometria','${b.id}')">Excluir</button>`);
   if (state.tab === 'movimentacoes') body = `<button onclick="openForm('Nova movimentação',F_MOV,{animalId:'${a.id}',data:today()},o=>DB.upsert('movimentacoes',o))">+ Movimentação</button><br><br>` +
     table([['Data', b => fdate(b.data)], ['Tipo', b => `<span class="tag ${b.tipo === 'Entrada' ? 'ok' : 'warn'}">${b.tipo}</span>`], ['Motivo', b => esc(b.motivo)], ['Origem/destino', b => esc(b.origemDestino)], ['GTA', b => esc(b.gta)]], mov, b => `<button class="del" onclick="del('movimentacoes','${b.id}')">Excluir</button>`);
-  if (state.tab === 'sanidade') body = `<button onclick="openForm('Novo registro sanitário',F_SAN,{animalId:'${a.id}',data:today()},o=>DB.upsert('sanidade',o))">+ Registro</button><br><br>` +
+  if (state.tab === 'sanidade' && typeof prontuarioAnimal === 'function') body = prontuarioAnimal(a.id);
+  else if (state.tab === 'sanidade') body = `<button onclick="openForm('Novo registro sanitário',F_SAN,{animalId:'${a.id}',data:today()},o=>DB.upsert('sanidade',o))">+ Registro</button><br><br>` +
     table([['Data', s => fdate(s.data)], ['Tipo', s => esc(s.tipo)], ['Produto', s => esc(s.produto)], ['Próxima', s => s.proxima ? fdate(s.proxima) : ''], ['Responsável', s => esc(s.responsavel)], ['Obs.', s => esc(s.obs)]], san, s => `<button class="del" onclick="del('sanidade','${s.id}')">Excluir</button>`);
   if (state.tab === 'reproducao') body = a.sexo === 'Fêmea' && typeof timelineEgua === 'function' ? timelineEgua(a.id) : typeof EV !== 'undefined' ? table([['Data', e => fdate(e.data)], ['Égua', e => `<a href="#reproducao" onclick="state.reproEgua='${e.eguaId}'">${esc(aname(e.eguaId))}</a>`], ['Registro', e => (EV[e.tipo]?.ic || '') + ' ' + (EV[e.tipo]?.nome || e.tipo)], ['Detalhe', e => esc(e.metodo || e.resultado || '')]], DB.list('eventos').filter(e => e.garanhaoId === a.id).sort((x, y) => y.data.localeCompare(x.data))) : table([['Cobertura', r => fdate(r.dataCobertura)], ['Égua', r => esc(aname(r.eguaId))], ['Garanhão', r => esc(aname(r.garanhaoId))], ['Método', r => esc(r.metodo)], ['DG', r => esc(r.resultadoDG)], ['Situação', r => esc(r.status)]], rep);
   if (state.tab === 'financeiro') {
@@ -803,6 +804,9 @@ const ACOES = {
 
 function render() {
   if (state.view === 'negocios' || state.view === 'custos') state.view = 'criacao';
+  // preparações únicas: histórico reprodutivo e protocolos de sanidade
+  if (typeof migrarRepro === 'function') migrarRepro();
+  if (typeof garantirProtocolos === 'function') garantirProtocolos();
   if (!pode(state.view)) state.view = 'dashboard';
   const u = usuarioAtual();
   $('#nav').innerHTML = MODULOS.filter(([k]) => pode(k)).map(([k, l]) => `<a href="#${k}" class="${state.view === k ? 'on' : ''}" onclick="state.reproEgua=null;if(location.hash==='#${k}'){state.animalId=null;render()}">${l}</a>`).join('');
