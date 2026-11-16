@@ -13,6 +13,13 @@ Sistema web para gestão de criatórios de cavalos (qualquer raça). Roda 100% n
 - **Reprodução**: monta, IA (fresco/resfriado/congelado), TE, diagnóstico de gestação, previsão de parto (340 dias), registro de parto com cadastro automático do potro, taxa de prenhez
 - **Sanidade**: vacinas, vermifugação, exames, tratamentos, alertas de vencimento, aplicação em lote
 - **Financeiro**: receitas e despesas, centros de custo, contas pendentes, demonstrativo por centro de custo
+- **Custos e Pensão**:
+  - *Pensão: custo × cobrado*: lucro ou prejuízo por cavalo de pensão, custo/mês comparado com a pensão cobrada, cobranças em aberto
+  - *Por cliente*: resultado e inadimplência por proprietário
+  - *Criação*: custo direto + rateio de cada animal próprio, custo por categoria, custo acumulado desde a entrada (base para preço de venda)
+  - *Visão geral*: resultado do haras separado em pensão × criação
+  - Botões **Gerar cobranças de pensão do mês** e **Cobrar serviço extra** (registra o custo e o valor repassado ao proprietário)
+  - Regra de custo: despesa com animal = custo direto; despesa sem animal (ração, salários, energia...) = rateada entre os animais presentes na data (todos, só criação ou só pensão), ponderada pelo "peso no rateio" de cada animal
 - **Estoque**: entradas e saídas, estoque mínimo, lançamento da compra no financeiro
 - **Relatórios**: plantel, calendário sanitário, desempenho reprodutivo por garanhão, financeiro anual, animais à venda (imprimir e exportar CSV)
 - **Site do haras**: editor da vitrine pública

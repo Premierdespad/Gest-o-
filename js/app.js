@@ -14,14 +14,14 @@ const GESTACAO = 340;
 // ---------- Perfis e permissões ----------
 const MODULOS = [
   ['dashboard', 'Painel'], ['animais', 'Animais'], ['reproducao', 'Reprodução'], ['sanidade', 'Sanidade'],
-  ['financeiro', 'Financeiro'], ['estoque', 'Estoque'], ['relatorios', 'Relatórios'], ['site', 'Site do Haras'],
+  ['financeiro', 'Financeiro'], ['custos', 'Custos e Pensão'], ['estoque', 'Estoque'], ['relatorios', 'Relatórios'], ['site', 'Site do Haras'],
   ['usuarios', 'Usuários'], ['config', 'Configurações'],
 ];
 const PERFIS = {
   'Administrador': MODULOS.map(m => m[0]),
   'Veterinário': ['dashboard', 'animais', 'reproducao', 'sanidade', 'relatorios'],
   'Funcionário': ['dashboard', 'animais', 'sanidade', 'estoque'],
-  'Financeiro': ['dashboard', 'financeiro', 'estoque', 'relatorios'],
+  'Financeiro': ['dashboard', 'financeiro', 'custos', 'estoque', 'relatorios'],
 };
 function usuarioAtual() {
   const u = DB.get('usuarios', DB.data.config.usuarioAtual) || DB.list('usuarios')[0];
@@ -98,6 +98,10 @@ const F_ANIMAL = [
   { k: 'categoria', l: 'Categoria', t: 'select', opts: ['Garanhão', 'Matriz', 'Potro', 'Potra', 'Doadora', 'Receptora', 'Serviço', 'Esporte'] },
   { k: 'status', l: 'Situação', t: 'select', opts: ['Ativo', 'Vendido', 'Morto', 'Emprestado', 'Externo'], req: true },
   { k: 'local', l: 'Local (baia/piquete)' },
+  { k: 'posse', l: 'Posse', t: 'select', opts: ['Próprio', 'Pensão'], req: true },
+  { k: 'dataEntrada', l: 'Entrada no haras', t: 'date' }, { k: 'dataSaida', l: 'Saída do haras', t: 'date' },
+  { k: 'pesoRateio', l: 'Peso no rateio de custos (1 = adulto)', t: 'number' },
+  { k: 'valorPensao', l: 'Pensão: valor mensal cobrado (R$)', t: 'number' }, { k: 'telefoneProp', l: 'Pensão: telefone do proprietário' },
   { k: 'paiId', l: 'Pai', t: 'animal', opts: () => animalOpts(a => a.sexo !== 'Fêmea') },
   { k: 'maeId', l: 'Mãe', t: 'animal', opts: () => animalOpts(a => a.sexo === 'Fêmea') },
   { k: 'proprietario', l: 'Proprietário' }, { k: 'criador', l: 'Criador' },
@@ -129,11 +133,13 @@ const F_SAN = [
   { k: 'responsavel', l: 'Responsável / veterinário' }, { k: 'custo', l: 'Custo (R$)', t: 'number' },
   { k: 'obs', l: 'Observações / diagnóstico', t: 'textarea', full: true },
 ];
+const RATEIOS = ['Todos os animais', 'Somente criação', 'Somente pensão', 'Não ratear'];
 const F_FIN = () => [
   { k: 'tipo', l: 'Tipo', t: 'select', opts: ['Receita', 'Despesa'], req: true }, { k: 'data', l: 'Data / vencimento', t: 'date', req: true },
   { k: 'descricao', l: 'Descrição', req: true }, { k: 'valor', l: 'Valor (R$)', t: 'number', req: true },
   { k: 'centro', l: 'Centro de custo', t: 'select', opts: DB.data.centrosCusto },
-  { k: 'animalId', l: 'Animal relacionado', t: 'animal', opts: () => animalOpts() },
+  { k: 'animalId', l: 'Animal relacionado (custo/receita direto)', t: 'animal', opts: () => animalOpts() },
+  { k: 'rateio', l: 'Sem animal: ratear despesa entre', t: 'select', opts: RATEIOS },
   { k: 'status', l: 'Situação', t: 'select', opts: ['Pago', 'Pendente'], req: true },
   { k: 'forma', l: 'Forma de pagamento', t: 'select', opts: ['Pix', 'Dinheiro', 'Boleto', 'Cartão', 'Transferência', 'Cheque'] },
   { k: 'contraparte', l: 'Cliente / fornecedor' }, { k: 'obs', l: 'Observações', t: 'textarea', full: true },
@@ -160,6 +166,7 @@ V.dashboard = () => {
     <div class="kpi"><small>Éguas gestantes</small><b>${gest.length}</b></div>
     <div class="kpi"><small>Alertas sanitários (30d)</small><b>${alertas.length}</b></div>
     ${pode('financeiro') ? `<div class="kpi"><small>Resultado do mês</small><b style="color:${rec - desp >= 0 ? 'var(--ok)' : 'var(--bad)'}">${brl(rec - desp)}</b></div>` : ''}
+    ${pode('custos') ? (() => { const C = calcCustos(mes + '-01', today()); const P = Object.entries(C).filter(([id]) => animal(id)?.posse === 'Pensão'); const r = P.reduce((s, [, c]) => s + c.receitas - c.diretos - c.rateio, 0); return `<div class="kpi"><small>Pensão: lucro/prejuízo no mês</small><b style="color:${r >= 0 ? 'var(--ok)' : 'var(--bad)'}">${brl(r)}</b><small>${P.length} cavalo(s) de pensão</small></div>`; })() : ''}
   </div>
   <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(320px,1fr))">
     <div class="card"><h3>Agenda sanitária</h3>${table([['Animal', s => esc(aname(s.animalId))], ['Tipo', s => esc(s.tipo)], ['Produto', s => esc(s.produto)], ['Quando', s => fdate(s.proxima) + ' ' + statusTag(daysUntil(s.proxima))]], alertas.slice(0, 8))}</div>
@@ -178,11 +185,11 @@ V.animais = () => {
   ${table([
     ['', a => a.foto ? `<img src="${a.foto}" class="thumb">` : '<span class="thumb"></span>'],
     ['Nome', a => `<a href="#" onclick="state.animalId='${a.id}';state.tab='dados';render();return false"><b>${esc(a.nome)}</b></a><br><small class="muted">${esc(a.registro || '')}</small>`],
-    ['Sexo', a => esc(a.sexo)], ['Idade', a => idade(a.nascimento)], ['Raça', a => esc(a.raca)], ['Categoria', a => esc(a.categoria)], ['Local', a => esc(a.local)],
+    ['Sexo', a => esc(a.sexo)], ['Idade', a => idade(a.nascimento)], ['Posse', a => a.posse === 'Pensão' ? `<span class="tag warn">Pensão</span><br><small class="muted">${esc(a.proprietario || '')}</small>` : '<span class="tag">Próprio</span>'], ['Raça', a => esc(a.raca)], ['Categoria', a => esc(a.categoria)], ['Local', a => esc(a.local)],
     ['Situação', a => `<span class="tag ${a.status === 'Ativo' ? 'ok' : a.status === 'Morto' ? 'bad' : ''}">${esc(a.status)}</span>`],
   ], rows, a => `<button class="lnk" onclick="editAnimal('${a.id}')">Editar</button><button class="del" onclick="del('animais','${a.id}')">Excluir</button>`)}</div>`;
 };
-window.editAnimal = (id) => openForm(id ? 'Editar animal' : 'Novo animal', F_ANIMAL, id ? animal(id) : { status: 'Ativo', aVenda: 'Não' }, o => DB.upsert('animais', o));
+window.editAnimal = (id) => openForm(id ? 'Editar animal' : 'Novo animal', F_ANIMAL, id ? animal(id) : { status: 'Ativo', aVenda: 'Não', posse: 'Próprio', pesoRateio: 1, dataEntrada: today() }, o => DB.upsert('animais', o));
 
 function node(id, cls, depth) {
   const a = animal(id);
@@ -204,7 +211,7 @@ V.animal = () => {
   const san = DB.list('sanidade').filter(b => b.animalId === a.id).sort((x, y) => y.data.localeCompare(x.data));
   const rep = DB.list('reproducao').filter(r => r.eguaId === a.id || r.garanhaoId === a.id || r.receptoraId === a.id);
   const fin = DB.list('financeiro').filter(f => f.animalId === a.id);
-  const tabs = [['dados', 'Dados'], ['genealogia', 'Genealogia'], ['biometria', 'Biometria'], ['movimentacoes', 'Entradas e saídas'], ['sanidade', 'Prontuário'], ['reproducao', 'Reprodução'], ['financeiro', 'Custos']];
+  const tabs = [['dados', 'Dados'], ['genealogia', 'Genealogia'], ['biometria', 'Biometria'], ['movimentacoes', 'Entradas e saídas'], ['sanidade', 'Prontuário'], ['reproducao', 'Reprodução'], ['financeiro', 'Custos e resultado']];
   let body = '';
   if (state.tab === 'dados') body = `<div class="row" style="align-items:flex-start;gap:20px">${a.foto ? `<img src="${a.foto}" class="photo">` : '<div class="photo"></div>'}
     <div class="grid" style="flex:1">${[['Registro', a.registro], ['Microchip', a.chip], ['Sexo', a.sexo], ['Raça', a.raca], ['Pelagem', a.pelagem], ['Nascimento', fdate(a.nascimento) + (a.nascimento ? ` (${idade(a.nascimento)})` : '')], ['Categoria', a.categoria], ['Situação', a.status], ['Local', a.local], ['Pai', aname(a.paiId)], ['Mãe', aname(a.maeId)], ['Proprietário', a.proprietario], ['Criador', a.criador], ['À venda', a.aVenda === 'Sim' ? 'Sim – ' + brl(a.preco) : 'Não']].map(([k, v]) => `<div><label>${k}</label>${esc(v) || '—'}</div>`).join('')}
@@ -218,8 +225,16 @@ V.animal = () => {
   if (state.tab === 'sanidade') body = `<button onclick="openForm('Novo registro sanitário',F_SAN,{animalId:'${a.id}',data:today()},o=>DB.upsert('sanidade',o))">+ Registro</button><br><br>` +
     table([['Data', s => fdate(s.data)], ['Tipo', s => esc(s.tipo)], ['Produto', s => esc(s.produto)], ['Próxima', s => s.proxima ? fdate(s.proxima) : ''], ['Responsável', s => esc(s.responsavel)], ['Obs.', s => esc(s.obs)]], san, s => `<button class="del" onclick="del('sanidade','${s.id}')">Excluir</button>`);
   if (state.tab === 'reproducao') body = table([['Cobertura', r => fdate(r.dataCobertura)], ['Égua', r => esc(aname(r.eguaId))], ['Garanhão', r => esc(aname(r.garanhaoId))], ['Método', r => esc(r.metodo)], ['DG', r => esc(r.resultadoDG)], ['Situação', r => esc(r.status)]], rep);
-  if (state.tab === 'financeiro') { const tot = fin.reduce((s, f) => s + (f.tipo === 'Receita' ? f.valor : -f.valor), 0) - san.reduce((s, x) => s + (Number(x.custo) || 0), 0);
-    body = table([['Data', f => fdate(f.data)], ['Descrição', f => esc(f.descricao)], ['Tipo', f => f.tipo], ['Valor', f => brl(f.valor)]], fin) + `<p>Custos sanitários: <b>${brl(san.reduce((s, x) => s + (Number(x.custo) || 0), 0))}</b> · Saldo do animal: <b>${brl(tot)}</b></p>`; }
+  if (state.tab === 'financeiro') {
+    const ini = a.dataEntrada || a.nascimento || '2000-01-01', c = calcCustos(ini, today())[a.id] || { dias: 0, diretos: 0, rateio: 0, receitas: 0, itens: [] };
+    const cm = calcCustos(today().slice(0, 7) + '-01', today())[a.id] || { diretos: 0, rateio: 0, receitas: 0 };
+    body = `<div class="kpis"><div class="kpi"><small>Custo total desde ${fdate(ini)}</small><b>${brl(c.diretos + c.rateio)}</b><small>${c.dias} dias · ${brl((c.diretos + c.rateio) / Math.max(c.dias, 1))}/dia</small></div>
+      <div class="kpi"><small>Custo no mês atual</small><b>${brl(cm.diretos + cm.rateio)}</b></div>
+      <div class="kpi"><small>Receitas ligadas ao animal</small><b>${brl(c.receitas)}</b></div>
+      <div class="kpi"><small>Resultado acumulado</small><b style="color:${c.receitas - c.diretos - c.rateio >= 0 ? 'var(--ok)' : 'var(--bad)'}">${brl(c.receitas - c.diretos - c.rateio)}</b></div></div>
+      <p class="muted">Custos diretos: ${brl(c.diretos)} · Rateio de custos gerais: ${brl(c.rateio)}</p>` +
+      table([['Data', i => fdate(i.data)], ['Origem', i => esc(i.origem)], ['Descrição', i => esc(i.desc)], ['Valor', i => `<span style="color:${i.v >= 0 ? 'var(--ok)' : 'var(--bad)'}">${brl(i.v)}</span>`]], c.itens.slice().sort((x, y) => y.data.localeCompare(x.data)).slice(0, 200));
+  }
   return `<div class="card"><div class="row" style="justify-content:space-between"><div><button class="sec" onclick="state.animalId=null;render()">← Voltar</button> <b style="font-size:20px;margin-left:8px">${esc(a.nome)}</b></div>
     <div class="row"><button class="sec" onclick="window.print()">Imprimir ficha</button><button onclick="editAnimal('${a.id}')">Editar</button></div></div><br>
     <div class="tabs">${tabs.map(([k, l]) => `<button class="${state.tab === k ? 'on' : ''}" onclick="state.tab='${k}';render()">${l}</button>`).join('')}</div>${body}</div>`;
@@ -279,12 +294,124 @@ V.financeiro = () => {
   <div class="kpis"><div class="kpi"><small>Receitas</small><b style="color:var(--ok)">${brl(rec)}</b></div><div class="kpi"><small>Despesas</small><b style="color:var(--bad)">${brl(desp)}</b></div><div class="kpi"><small>Resultado</small><b>${brl(rec - desp)}</b></div><div class="kpi"><small>Contas pendentes</small><b>${pend.length}</b><small>${brl(pend.reduce((s, f) => s + (f.tipo === 'Despesa' ? -1 : 1) * f.valor, 0))}</small></div></div>
   <div class="card"><h3>Demonstrativo por centro de custo</h3>${table([['Centro', ([c]) => esc(c)], ['Receitas', ([, v]) => brl(v.r)], ['Despesas', ([, v]) => brl(v.d)], ['Resultado', ([, v]) => `<b style="color:${v.r - v.d >= 0 ? 'var(--ok)' : 'var(--bad)'}">${brl(v.r - v.d)}</b>`]], Object.entries(porCentro))}</div>
   <div class="card"><h3>Lançamentos</h3>${table([
-    ['Data', f => fdate(f.data)], ['Descrição', f => esc(f.descricao) + (f.contraparte ? `<br><small class="muted">${esc(f.contraparte)}</small>` : '')], ['Centro', f => esc(f.centro)], ['Animal', f => esc(aname(f.animalId))],
+    ['Data', f => fdate(f.data)], ['Descrição', f => esc(f.descricao) + (f.contraparte ? `<br><small class="muted">${esc(f.contraparte)}</small>` : '')], ['Centro', f => esc(f.centro)], ['Animal / rateio', f => f.animalId ? esc(aname(f.animalId)) : f.tipo === 'Despesa' ? `<small class="muted">${esc(f.rateio || 'Todos os animais')}</small>` : ''],
     ['Valor', f => `<b style="color:${f.tipo === 'Receita' ? 'var(--ok)' : 'var(--bad)'}">${f.tipo === 'Despesa' ? '-' : ''}${brl(f.valor)}</b>`],
     ['Situação', f => `<span class="tag ${f.status === 'Pago' ? 'ok' : 'warn'}">${f.status}</span>`],
   ], rows, f => `${f.status === 'Pendente' ? `<button class="lnk" onclick="DB.upsert('financeiro',{...DB.get('financeiro','${f.id}'),status:'Pago'});render()">Baixar</button>` : ''}<button class="lnk" onclick="openForm('Editar lançamento',F_FIN(),DB.get('financeiro','${f.id}'),o=>DB.upsert('financeiro',o))">Editar</button><button class="del" onclick="del('financeiro','${f.id}')">Excluir</button>`)}</div>`;
 };
 window.novoCentro = () => { const n = prompt('Nome do novo centro de custo:'); if (n && !DB.data.centrosCusto.includes(n)) { DB.data.centrosCusto.push(n); DB.save(); render(); } };
+
+
+// ---------- Motor de custos: diretos + rateio de custos gerais ----------
+function saidaDe(a) {
+  if (a.dataSaida) return a.dataSaida;
+  if (['Vendido', 'Morto'].includes(a.status)) { const m = DB.list('movimentacoes').filter(x => x.animalId === a.id && x.tipo === 'Saída').sort((x, y) => y.data.localeCompare(x.data))[0]; return m ? m.data : null; }
+  return null;
+}
+function presente(a, d) {
+  if (a.status === 'Externo') return false;
+  const ent = a.dataEntrada || a.nascimento || '1900-01-01', sai = saidaDe(a);
+  return d >= ent && (!sai || d <= sai);
+}
+function diasPresente(a, ini, fim) {
+  const ent = a.dataEntrada || a.nascimento || '1900-01-01', sai = saidaDe(a) || '9999-12-31';
+  const i = ent > ini ? ent : ini, f = sai < fim ? sai : fim;
+  return a.status === 'Externo' || f < i ? 0 : Math.round((new Date(f) - new Date(i)) / 864e5) + 1;
+}
+// Retorna { [animalId]: { dias, diretos, rateio, receitas, itens[] } } para o período [ini, fim]
+function calcCustos(ini, fim) {
+  const out = {}, an = DB.list('animais');
+  const R = (id) => out[id] || (out[id] = { dias: diasPresente(animal(id) || {}, ini, fim), diretos: 0, rateio: 0, receitas: 0, itens: [] });
+  an.forEach(a => { if (diasPresente(a, ini, fim) > 0) R(a.id); });
+  const noPer = (d) => d && d >= ini && d <= fim;
+  DB.list('financeiro').filter(f => noPer(f.data)).forEach(f => {
+    const v = Number(f.valor) || 0;
+    if (f.animalId) {
+      const r = R(f.animalId);
+      if (f.tipo === 'Receita') { r.receitas += v; r.itens.push({ data: f.data, origem: 'Receita', desc: f.descricao, v }); }
+      else { r.diretos += v; r.itens.push({ data: f.data, origem: 'Despesa direta', desc: f.descricao, v: -v }); }
+    } else if (f.tipo === 'Despesa' && f.rateio !== 'Não ratear') {
+      const esc_ = f.rateio || 'Todos os animais';
+      const el = an.filter(a => presente(a, f.data) && (esc_ === 'Todos os animais' || (esc_ === 'Somente pensão') === (a.posse === 'Pensão')));
+      const W = el.reduce((s, a) => s + (Number(a.pesoRateio) || 1), 0); if (!W) return;
+      el.forEach(a => { const parte = v * (Number(a.pesoRateio) || 1) / W; const r = R(a.id); r.rateio += parte; r.itens.push({ data: f.data, origem: 'Rateio (' + esc_ + ')', desc: f.descricao, v: -parte }); });
+    }
+  });
+  DB.list('sanidade').filter(x => noPer(x.data) && Number(x.custo)).forEach(x => { const r = R(x.animalId); r.diretos += Number(x.custo); r.itens.push({ data: x.data, origem: 'Sanidade', desc: x.tipo + ' – ' + x.produto, v: -Number(x.custo) }); });
+  return out;
+}
+const PERIODOS = { 'Mês atual': () => [today().slice(0, 7) + '-01', today()], 'Mês anterior': () => { const d = new Date(); d.setDate(0); const f = d.toISOString().slice(0, 10); return [f.slice(0, 8) + '01', f]; }, 'Últimos 3 meses': () => [today(-90), today()], 'Ano atual': () => [today().slice(0, 4) + '-01-01', today()], 'Últimos 12 meses': () => [today(-365), today()] };
+
+V.custos = () => {
+  if (!state.cIni) [state.cIni, state.cFim] = PERIODOS['Mês atual']();
+  const ini = state.cIni, fim = state.cFim, C = calcCustos(ini, fim), tab = state.ctab || 'pensao';
+  const meses = Math.max(diasPresente({ dataEntrada: ini }, ini, fim) / 30.44, 0.0001);
+  const linhas = (filtro) => Object.entries(C).map(([id, c]) => ({ a: animal(id), ...c, custo: c.diretos + c.rateio })).filter(x => x.a && filtro(x.a));
+  const res = (v) => `<b style="color:${v >= 0 ? 'var(--ok)' : 'var(--bad)'}">${brl(v)}</b>`;
+  const head = `<div class="card row noprint"><label style="margin:0">Período</label><input type="date" value="${ini}" onchange="state.cIni=this.value;render()" style="max-width:160px"> até <input type="date" value="${fim}" onchange="state.cFim=this.value;render()" style="max-width:160px">
+    ${Object.keys(PERIODOS).map(k => `<button class="sec" onclick="[state.cIni,state.cFim]=PERIODOS['${k}']();render()">${k}</button>`).join('')}</div>
+    <div class="tabs">${[['pensao', 'Pensão: custo × cobrado'], ['clientes', 'Por cliente'], ['criacao', 'Criação: custo dos meus animais'], ['geral', 'Visão geral']].map(([k, l]) => `<button class="${tab === k ? 'on' : ''}" onclick="state.ctab='${k}';render()">${l}</button>`).join('')}</div>`;
+  let body = '';
+  if (tab === 'pensao') {
+    const L = linhas(a => a.posse === 'Pensão');
+    const cob = L.reduce((s, x) => s + x.receitas, 0), cus = L.reduce((s, x) => s + x.custo, 0);
+    const pend = DB.list('financeiro').filter(f => f.status === 'Pendente' && f.tipo === 'Receita' && animal(f.animalId)?.posse === 'Pensão');
+    body = `<div class="kpis"><div class="kpi"><small>Cavalos de pensão</small><b>${L.length}</b></div><div class="kpi"><small>Valor cobrado no período</small><b style="color:var(--ok)">${brl(cob)}</b></div><div class="kpi"><small>Custo no período</small><b style="color:var(--bad)">${brl(cus)}</b></div><div class="kpi"><small>Lucro / prejuízo da pensão</small><b style="color:${cob - cus >= 0 ? 'var(--ok)' : 'var(--bad)'}">${brl(cob - cus)}</b><small>Margem: ${cob ? Math.round((cob - cus) / cob * 100) : 0}%</small></div></div>
+    ${pend.length ? `<div class="card"><span class="tag bad">${pend.length} cobrança(s) em aberto: ${brl(pend.reduce((s, f) => s + Number(f.valor), 0))}</span> <a href="#financeiro">ver no financeiro</a></div>` : ''}
+    <div class="card"><h3>Resultado por cavalo de pensão</h3>${table([
+      ['Cavalo', x => `<a href="#" onclick="location.hash='animais';setTimeout(()=>{state.animalId='${x.a.id}';state.tab='financeiro';render()});return false"><b>${esc(x.a.nome)}</b></a>`], ['Proprietário', x => esc(x.a.proprietario)],
+      ['Dias', x => x.dias], ['Pensão mensal', x => brl(x.a.valorPensao)], ['Cobrado (pensão + extras)', x => brl(x.receitas)],
+      ['Custo direto', x => brl(x.diretos)], ['Rateio', x => brl(x.rateio)], ['Custo total', x => brl(x.custo)], ['Custo/mês', x => brl(x.custo / Math.max(x.dias / 30.44, 0.0001))],
+      ['Resultado', x => res(x.receitas - x.custo)],
+    ], L)}<p class="muted"><b>Custo/mês</b> mostra quanto cada cavalo custa por mês: compare com a pensão cobrada para saber se o preço cobre o custo.</p></div>`;
+  }
+  if (tab === 'clientes') {
+    const by = {}; linhas(a => a.posse === 'Pensão').forEach(x => { const k = x.a.proprietario || 'Sem proprietário'; by[k] = by[k] || { n: 0, r: 0, c: 0, p: 0 }; by[k].n++; by[k].r += x.receitas; by[k].c += x.custo; });
+    DB.list('financeiro').filter(f => f.status === 'Pendente' && f.tipo === 'Receita' && animal(f.animalId)?.posse === 'Pensão').forEach(f => { const k = animal(f.animalId).proprietario || 'Sem proprietário'; by[k] = by[k] || { n: 0, r: 0, c: 0, p: 0 }; by[k].p += Number(f.valor); });
+    body = `<div class="card">${table([['Cliente', ([k]) => `<b>${esc(k)}</b>`], ['Cavalos', ([, v]) => v.n], ['Cobrado', ([, v]) => brl(v.r)], ['Custo', ([, v]) => brl(v.c)], ['Resultado', ([, v]) => res(v.r - v.c)], ['Em aberto', ([, v]) => v.p ? `<span class="tag bad">${brl(v.p)}</span>` : '<span class="tag ok">Em dia</span>']], Object.entries(by))}</div>`;
+  }
+  if (tab === 'criacao') {
+    const L = linhas(a => a.posse !== 'Pensão');
+    const tot = L.reduce((s, x) => s + x.custo, 0), rec = L.reduce((s, x) => s + x.receitas, 0);
+    const porCat = {}; L.forEach(x => { const k = x.a.categoria || 'Sem categoria'; porCat[k] = porCat[k] || { n: 0, c: 0 }; porCat[k].n++; porCat[k].c += x.custo; });
+    body = `<div class="kpis"><div class="kpi"><small>Animais de criação</small><b>${L.length}</b></div><div class="kpi"><small>Custo total no período</small><b style="color:var(--bad)">${brl(tot)}</b></div><div class="kpi"><small>Custo médio por animal/mês</small><b>${brl(tot / Math.max(L.length, 1) / meses)}</b></div><div class="kpi"><small>Receitas da criação (vendas, coberturas)</small><b style="color:var(--ok)">${brl(rec)}</b></div></div>
+    <div class="card"><h3>Custo por categoria</h3>${table([['Categoria', ([k]) => esc(k)], ['Animais', ([, v]) => v.n], ['Custo no período', ([, v]) => brl(v.c)], ['Custo médio/animal/mês', ([, v]) => brl(v.c / v.n / meses)]], Object.entries(porCat))}</div>
+    <div class="card"><h3>Custo por animal</h3>${table([
+      ['Animal', x => `<a href="#" onclick="location.hash='animais';setTimeout(()=>{state.animalId='${x.a.id}';state.tab='financeiro';render()});return false"><b>${esc(x.a.nome)}</b></a>`], ['Categoria', x => esc(x.a.categoria)],
+      ['Custo direto', x => brl(x.diretos)], ['Rateio', x => brl(x.rateio)], ['Custo total', x => brl(x.custo)], ['Custo/mês', x => brl(x.custo / Math.max(x.dias / 30.44, 0.0001))],
+      ['Custo acumulado (desde a entrada)', x => { const t = calcCustos(x.a.dataEntrada || x.a.nascimento || '2000-01-01', today())[x.a.id]; return t ? brl(t.diretos + t.rateio) : '—'; }],
+      ['Receitas', x => brl(x.receitas)], ['Resultado', x => res(x.receitas - x.custo)],
+    ], L.sort((p, q) => q.custo - p.custo))}<p class="muted">O <b>custo acumulado</b> ajuda a definir o preço mínimo de venda de cada potro.</p></div>`;
+  }
+  if (tab === 'geral') {
+    const fin = DB.list('financeiro').filter(f => f.data >= ini && f.data <= fim);
+    const s = (fn) => fin.filter(fn).reduce((t, f) => t + Number(f.valor), 0);
+    const P = linhas(a => a.posse === 'Pensão'), Cr = linhas(a => a.posse !== 'Pensão');
+    const naoRat = s(f => f.tipo === 'Despesa' && !f.animalId && f.rateio === 'Não ratear');
+    const rows = [['Pensão', P.reduce((t, x) => t + x.receitas, 0), P.reduce((t, x) => t + x.custo, 0)], ['Criação', Cr.reduce((t, x) => t + x.receitas, 0), Cr.reduce((t, x) => t + x.custo, 0)], ['Receitas sem animal / despesas não rateadas', s(f => f.tipo === 'Receita' && !f.animalId), naoRat]];
+    const R_ = rows.reduce((t, r) => t + r[1], 0), D_ = rows.reduce((t, r) => t + r[2], 0);
+    body = `<div class="card"><h3>Resultado do haras no período</h3>${table([['Atividade', r => `<b>${r[0]}</b>`], ['Receitas', r => brl(r[1])], ['Custos', r => brl(r[2])], ['Resultado', r => res(r[1] - r[2])]], rows.concat([['TOTAL', R_, D_]]))}
+    <p class="muted">Como os custos são calculados: despesas lançadas <b>com animal</b> e custos do prontuário sanitário são <b>custos diretos</b>. Despesas <b>sem animal</b> (ração, salários, energia, instalações...) são <b>rateadas</b> entre os animais presentes na data, conforme a opção escolhida no lançamento e o <b>peso no rateio</b> de cada animal (ex.: potro = 0,5). Atenção: se o custo de uma vacina já está no prontuário sanitário, não lance de novo no financeiro com o mesmo animal, para não contar em dobro.</p></div>`;
+  }
+  return head + body;
+};
+window.gerarCobrancas = () => {
+  const mes = today().slice(0, 7); const P = DB.list('animais').filter(a => a.posse === 'Pensão' && presente(a, today()) && Number(a.valorPensao));
+  const ja = new Set(DB.list('financeiro').filter(f => f.centro === 'Pensão' && f.tipo === 'Receita' && f.data.startsWith(mes) && /^Pensão/.test(f.descricao)).map(f => f.animalId));
+  const novos = P.filter(a => !ja.has(a.id));
+  if (!novos.length) return alert('Todas as pensões deste mês já foram lançadas.');
+  if (!confirm(`Gerar ${novos.length} cobrança(s) de pensão de ${mes.slice(5)}/${mes.slice(0, 4)}?`)) return;
+  novos.forEach(a => DB.upsert('financeiro', { tipo: 'Receita', data: today(), descricao: 'Pensão - ' + a.nome, valor: Number(a.valorPensao), centro: 'Pensão', animalId: a.id, contraparte: a.proprietario, status: 'Pendente' }));
+  render();
+};
+window.cobrarExtra = () => openForm('Cobrar serviço extra do proprietário', [
+  { k: 'animalId', l: 'Cavalo de pensão', t: 'animal', opts: () => animalOpts(a => a.posse === 'Pensão'), req: true }, { k: 'descricao', l: 'Serviço (ferrageamento, veterinário, medicamento...)', req: true },
+  { k: 'custo', l: 'Quanto custou para você (R$)', t: 'number' }, { k: 'valor', l: 'Quanto vai cobrar do proprietário (R$)', t: 'number', req: true }, { k: 'data', l: 'Data', t: 'date', req: true }],
+  { data: today() }, o => {
+    const a = animal(o.animalId);
+    if (o.custo) DB.upsert('financeiro', { tipo: 'Despesa', data: o.data, descricao: o.descricao + ' - ' + a.nome, valor: o.custo, centro: 'Pensão', animalId: a.id, status: 'Pago' });
+    DB.upsert('financeiro', { tipo: 'Receita', data: o.data, descricao: 'Extra: ' + o.descricao + ' - ' + a.nome, valor: o.valor, centro: 'Pensão', animalId: a.id, contraparte: a.proprietario, status: 'Pendente' });
+  });
 
 V.estoque = () => `<div class="card">${table([
   ['Item', e => esc(e.item)], ['Categoria', e => esc(e.categoria)], ['Quantidade', e => `${e.quantidade} ${esc(e.unidade || '')}` + (Number(e.quantidade) <= Number(e.minimo) ? ' <span class="tag bad">Baixo</span>' : '')],
@@ -344,6 +471,7 @@ const ACOES = {
   reproducao: () => `<button onclick="openForm('Nova cobertura / inseminação',F_REPRO,{dataCobertura:today(),resultadoDG:'Aguardando',status:'Coberta'},o=>DB.upsert('reproducao',o))">+ Nova cobertura</button>`,
   sanidade: () => `<button class="sec" onclick="aplicacaoLote()">Aplicação em lote</button><button onclick="openForm('Novo registro sanitário',F_SAN,{data:today()},o=>DB.upsert('sanidade',o))">+ Novo registro</button>`,
   financeiro: () => `<button onclick="openForm('Novo lançamento',F_FIN(),{data:today(),tipo:'Despesa',status:'Pago'},o=>DB.upsert('financeiro',o))">+ Novo lançamento</button>`,
+  custos: () => `<button class="sec" onclick="cobrarExtra()">Cobrar serviço extra</button><button onclick="gerarCobrancas()">Gerar cobranças de pensão do mês</button>`,
   estoque: () => `<button onclick="openForm('Novo item',F_EST,{},o=>DB.upsert('estoque',o))">+ Novo item</button>`,
   relatorios: () => `<button onclick="window.print()">Imprimir</button>`,
   usuarios: () => `<button onclick="openForm('Novo usuário',F_USU,{perfil:'Funcionário',ativo:'Sim'},o=>DB.upsert('usuarios',o))">+ Novo usuário</button>`,

@@ -6,6 +6,9 @@ const DB = {
   load() {
     try { this.data = JSON.parse(localStorage.getItem(DB_KEY)); } catch (e) { this.data = null; }
     if (!this.data) { this.data = seed(); this.save(); }
+    // migração de versões anteriores
+    (this.data.animais || []).forEach(a => { a.posse = a.posse || 'Próprio'; if (!a.pesoRateio) a.pesoRateio = 1; });
+    if (!this.data.centrosCusto.includes('Pensão')) this.data.centrosCusto.unshift('Pensão');
     return this.data;
   },
   save() { localStorage.setItem(DB_KEY, JSON.stringify(this.data)); },
@@ -29,7 +32,7 @@ function emptyDb() {
   return {
     config: { haras: 'Meu Haras', usuarioAtual: null },
     animais: [], biometria: [], movimentacoes: [], reproducao: [], sanidade: [],
-    financeiro: [], centrosCusto: ['Reprodução', 'Alimentação', 'Sanidade', 'Pessoal', 'Instalações', 'Vendas', 'Eventos'],
+    financeiro: [], centrosCusto: ['Pensão', 'Reprodução', 'Alimentação', 'Sanidade', 'Pessoal', 'Instalações', 'Vendas', 'Eventos'],
     estoque: [], usuarios: [{ id: uid(), nome: 'Administrador', email: 'admin@haras.local', perfil: 'Administrador', ativo: 'Sim' }],
     site: { titulo: 'Meu Haras', slogan: 'Criação com tradição e qualidade', sobre: '', telefone: '', email: '', endereco: '', instagram: '', cor: '#7a4b2a', banner: '' },
   };
@@ -47,6 +50,9 @@ function seed() {
   A({ nome: 'Duque VD', registro: 'MM-305566', sexo: 'Macho', raca: 'Mangalarga Marchador', pelagem: 'Castanha', nascimento: '2022-10-10', status: 'Ativo', categoria: 'Potro', local: 'Piquete 4', paiId: g.id, maeId: m1.id, aVenda: 'Sim', preco: 45000, descricaoVenda: 'Potro de excelente marcha, filho do Imperador VD.' });
   A({ nome: 'Brisa VD', sexo: 'Fêmea', raca: 'Mangalarga Marchador', pelagem: 'Alazã', nascimento: '2023-11-01', status: 'Ativo', categoria: 'Potra', local: 'Piquete 4', paiId: g.id, maeId: m2.id, aVenda: 'Sim', preco: 38000 });
   A({ nome: 'Relâmpago', sexo: 'Macho castrado', raca: 'Quarto de Milha', pelagem: 'Baia', nascimento: '2012-03-03', status: 'Ativo', categoria: 'Serviço', local: 'Baia 05' });
+  const p1 = A({ nome: 'Zorro', sexo: 'Macho castrado', raca: 'Crioulo', pelagem: 'Gateada', nascimento: '2015-05-01', status: 'Ativo', categoria: 'Esporte', local: 'Baia 07', posse: 'Pensão', proprietario: 'Carlos Mendes', telefoneProp: '(35) 98888-1111', valorPensao: 1200, dataEntrada: today(-200), pesoRateio: 1 });
+  const p2 = A({ nome: 'Bela Vista', sexo: 'Fêmea', raca: 'Quarto de Milha', pelagem: 'Alazã', nascimento: '2017-02-01', status: 'Ativo', categoria: 'Esporte', local: 'Baia 08', posse: 'Pensão', proprietario: 'Ana Ribeiro', valorPensao: 900, dataEntrada: today(-90), pesoRateio: 1 });
+  db.animais.forEach(a => { a.posse = a.posse || 'Próprio'; a.pesoRateio = a.pesoRateio || (/Potr/.test(a.categoria || '') ? 0.5 : 1); if (!a.dataEntrada && a.status !== 'Externo') a.dataEntrada = a.nascimento; });
   db.biometria.push({ id: uid(), animalId: g.id, data: today(-60), peso: 480, altura: 1.52, toracico: 1.82, canela: 0.20 });
   db.biometria.push({ id: uid(), animalId: g.id, data: today(-5), peso: 488, altura: 1.52, toracico: 1.84, canela: 0.20 });
   db.movimentacoes.push({ id: uid(), animalId: g.id, tipo: 'Entrada', data: '2016-02-10', motivo: 'Compra', origemDestino: 'Haras Serra Azul' });
@@ -62,6 +68,12 @@ function seed() {
   F({ tipo: 'Despesa', data: today(-20), descricao: 'Salários', valor: 6200, centro: 'Pessoal' });
   F({ tipo: 'Despesa', data: today(-8), descricao: 'Vacinas e vermífugos', valor: 650, centro: 'Sanidade' });
   F({ tipo: 'Despesa', data: today(10), descricao: 'Manutenção das baias', valor: 1500, centro: 'Instalações', status: 'Pendente' });
+  F({ tipo: 'Receita', data: today(-15), descricao: 'Pensão - Zorro', valor: 1200, centro: 'Pensão', animalId: p1.id, contraparte: 'Carlos Mendes' });
+  F({ tipo: 'Receita', data: today(-15), descricao: 'Pensão - Bela Vista', valor: 900, centro: 'Pensão', animalId: p2.id, contraparte: 'Ana Ribeiro', status: 'Pendente' });
+  F({ tipo: 'Despesa', data: today(-14), descricao: 'Ferrageamento - Zorro', valor: 180, centro: 'Sanidade', animalId: p1.id });
+  F({ tipo: 'Receita', data: today(-14), descricao: 'Reembolso ferrageamento - Zorro', valor: 180, centro: 'Pensão', animalId: p1.id, contraparte: 'Carlos Mendes' });
+  F({ tipo: 'Despesa', data: today(-25), descricao: 'Energia e água', valor: 700, centro: 'Instalações', rateio: 'Todos os animais' });
+  F({ tipo: 'Despesa', data: today(-5), descricao: 'Serragem para baias de pensão', valor: 400, centro: 'Pensão', rateio: 'Somente pensão' });
   db.estoque.push({ id: uid(), item: 'Ração (saco 40kg)', categoria: 'Alimentação', quantidade: 25, unidade: 'saco', minimo: 10, custoUnit: 110 });
   db.estoque.push({ id: uid(), item: 'Feno (fardo)', categoria: 'Alimentação', quantidade: 6, unidade: 'fardo', minimo: 15, custoUnit: 35 });
   db.estoque.push({ id: uid(), item: 'Ivermectina', categoria: 'Medicamento', quantidade: 12, unidade: 'dose', minimo: 5, custoUnit: 30 });
