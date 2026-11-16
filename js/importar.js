@@ -105,7 +105,7 @@ function importarDados(d) {
       id, tipo: t.tipo === 'Compra' ? 'Compra' : 'Venda', produto, animalId: produto === 'Animal' ? cid(t.cavalo_id) : '', doadoraId: cid(t.doadora_id),
       garanhaoId: t.garanhao_id ? cid(t.garanhao_id) : (t.garanhao_externo ? externo(t.garanhao_externo, 'Macho') : ''), quantidade: t.quantidade || 1,
       data: dia(t.data), contraparte: t.contraparte || '', telefone: t.telefone || '', valor: Number(t.valor) || 0, pctAnimal,
-      comissaoPct: ex?.comissaoPct || 0, parcelas: lista.length || 1, primeiroVenc: lista[0]?.vencimento || dia(t.data), quitado: 'Sim', parcelasLista: lista,
+      comissaoPct: ex?.comissaoPct || 0, plano: (() => { try { return JSON.parse(t.plano || 'null'); } catch (e) { return null; } })(), parcelas: lista.length || 1, primeiroVenc: lista[0]?.vencimento || dia(t.data), quitado: 'Sim', parcelasLista: lista,
       participacoes: ex?.participacoes?.length ? ex.participacoes : [{ socioId: eu.id, pct: 100 }], obs: t.obs || '',
     });
     if (produto === 'Animal' && t.cavalo_id) comNegocio.add(t.tipo + ':' + t.cavalo_id);

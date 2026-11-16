@@ -10,6 +10,16 @@ const animal = (id) => DB.get('animais', id);
 const aname = (id) => animal(id)?.nome || '';
 const idade = (n) => { if (!n) return ''; const m = Math.floor((new Date() - new Date(n)) / (30.44 * 864e5)); return m < 24 ? m + ' meses' : Math.floor(m / 12) + ' anos'; };
 const GESTACAO = 340;
+// Previsão de parto: pela cobertura; na TE sem data de cobertura, pela inovulação (embrião ~8 dias)
+const previsaoParto = (r) => r.status !== 'Gestante' || r.dataParto ? null : r.dataCobertura ? addDays(r.dataCobertura, GESTACAO) : r.dataInovulacao ? addDays(r.dataInovulacao, GESTACAO - 8) : null;
+// Só o último registro de cada (animal, tipo, produto) define a próxima dose
+function pendenciasSanitarias() {
+  const ult = {};
+  DB.list('sanidade').forEach(x => { const k = [x.animalId, x.tipo, (x.produto || '').toLowerCase()].join('|'); if (!ult[k] || (x.data || '') > (ult[k].data || '')) ult[k] = x; });
+  return Object.values(ult).filter(x => x.proxima && animal(x.animalId)?.status === 'Ativo').sort((a, b) => a.proxima.localeCompare(b.proxima));
+}
+const ABCCMM_URL = 'https://www.abccmm.org.br/animais';
+window.verABCCMM = (id) => { const n = animal(id)?.nome || ''; navigator.clipboard?.writeText(n).catch(() => {}); window.open(ABCCMM_URL, '_blank', 'noopener'); };
 
 // ---------- Perfis e permissões ----------
 const MODULOS = [
@@ -95,7 +105,7 @@ const F_ANIMAL = [
   { k: 'nome', l: 'Nome', req: true }, { k: 'registro', l: 'Nº de registro' }, { k: 'chip', l: 'Microchip' },
   { k: 'sexo', l: 'Sexo', t: 'select', opts: ['Macho', 'Fêmea', 'Macho castrado'], req: true },
   { k: 'raca', l: 'Raça' }, { k: 'pelagem', l: 'Pelagem' }, { k: 'nascimento', l: 'Nascimento', t: 'date' },
-  { k: 'categoria', l: 'Categoria', t: 'select', opts: ['Garanhão', 'Matriz', 'Potro', 'Potra', 'Doadora', 'Receptora', 'Serviço', 'Esporte'] },
+  { k: 'categoria', l: 'Categoria', t: 'select', opts: ['Garanhão', 'Matriz', 'Doadora', 'Receptora', 'Potro', 'Potra', 'Recria', 'Serviço', 'Esporte', 'Outro'] },
   { k: 'status', l: 'Situação', t: 'select', opts: ['Ativo', 'Vendido', 'Morto', 'Emprestado', 'Externo'], req: true },
   { k: 'local', l: 'Local (baia/piquete)' },
   { k: 'posse', l: 'Posse', t: 'select', opts: ['Próprio', 'Pensão'], req: true },
@@ -129,7 +139,7 @@ const F_REPRO = [
 ];
 const F_SAN = [
   { k: 'animalId', l: 'Animal', t: 'animal', opts: () => animalOpts(a => a.status === 'Ativo'), req: true },
-  { k: 'tipo', l: 'Tipo', t: 'select', opts: ['Vacina', 'Vermifugação', 'Exame', 'Tratamento', 'Consulta', 'Cirurgia', 'Casqueamento/Ferrageamento', 'Odontologia'], req: true },
+  { k: 'tipo', l: 'Tipo', t: 'select', opts: ['Vacina', 'Vermifugação', 'Exame', 'Tratamento', 'Consulta', 'Cirurgia', 'Casqueamento', 'Ferrageamento', 'Casqueamento/Ferrageamento', 'Odontologia', 'Outro'], req: true },
   { k: 'produto', l: 'Produto / procedimento', req: true }, { k: 'data', l: 'Data de aplicação', t: 'date', req: true },
   { k: 'proxima', l: 'Próxima aplicação / retorno', t: 'date' }, { k: 'dose', l: 'Dose / lote' },
   { k: 'responsavel', l: 'Responsável / veterinário' }, { k: 'custo', l: 'Custo (R$)', t: 'number' },
@@ -156,23 +166,29 @@ const V = {};
 V.dashboard = () => {
   const ativos = DB.list('animais').filter(a => a.status === 'Ativo');
   const gest = DB.list('reproducao').filter(r => r.status === 'Gestante');
-  const alertas = DB.list('sanidade').filter(s => s.proxima && daysUntil(s.proxima) <= 30).sort((a, b) => a.proxima.localeCompare(b.proxima));
+  const alertas = pendenciasSanitarias().filter(s => daysUntil(s.proxima) <= 30);
   const mes = today().slice(0, 7), fin = DB.list('financeiro').filter(f => f.data.startsWith(mes));
   const rec = fin.filter(f => f.tipo === 'Receita').reduce((s, f) => s + f.valor, 0), desp = fin.filter(f => f.tipo === 'Despesa').reduce((s, f) => s + f.valor, 0);
-  const partos = gest.map(r => ({ ...r, prev: addDays(r.dataCobertura, GESTACAO) })).sort((a, b) => a.prev.localeCompare(b.prev));
+  const partos = gest.map(r => ({ ...r, prev: previsaoParto(r) })).filter(r => r.prev).sort((a, b) => a.prev.localeCompare(b.prev));
+  const pend = DB.list('financeiro').filter(f => f.status === 'Pendente'), somaF = (arr, t) => arr.filter(f => f.tipo === t).reduce((s, f) => s + Number(f.valor), 0);
+  const pendMes = pend.filter(f => f.data.startsWith(mes)), atrasadas = pend.filter(f => f.data < today());
+  const nAte2 = ativos.filter(a => a.nascimento && daysUntil(a.nascimento) > -730).length;
   const baixo = DB.list('estoque').filter(e => Number(e.quantidade) <= Number(e.minimo));
   const dgPend = DB.list('reproducao').filter(r => r.resultadoDG === 'Aguardando');
   const porCat = {}; ativos.forEach(a => porCat[a.categoria || 'Sem categoria'] = (porCat[a.categoria || 'Sem categoria'] || 0) + 1);
+  const proprios = ativos.filter(a => a.posse !== 'Pensão');
   return `<div class="kpis">
-    <div class="kpi"><small>Animais ativos</small><b>${ativos.length}</b></div>
+    <div class="kpi"><small>Animais ativos</small><b>${ativos.length}</b><small>${proprios.filter(a => a.sexo === 'Fêmea').length} éguas · ${proprios.filter(a => a.sexo !== 'Fêmea').length} machos · ${nAte2} até 2 anos</small></div>
+    <div class="kpi"><small>À venda · receptoras</small><b>${ativos.filter(a => a.aVenda === 'Sim').length} · ${ativos.filter(a => a.categoria === 'Receptora').length}</b></div>
     <div class="kpi"><small>Éguas gestantes</small><b>${gest.length}</b></div>
     <div class="kpi"><small>Alertas sanitários (30d)</small><b>${alertas.length}</b></div>
     ${pode('financeiro') ? `<div class="kpi"><small>Resultado do mês</small><b style="color:${rec - desp >= 0 ? 'var(--ok)' : 'var(--bad)'}">${brl(rec - desp)}</b></div>` : ''}
     ${pode('custos') ? (() => { const C = calcCustos(mes + '-01', today()); const P = Object.entries(C).filter(([id]) => animal(id)?.posse === 'Pensão'); const r = P.reduce((s, [, c]) => s + c.receitas - c.diretos - c.rateio, 0); return `<div class="kpi"><small>Pensão: lucro/prejuízo no mês</small><b style="color:${r >= 0 ? 'var(--ok)' : 'var(--bad)'}">${brl(r)}</b><small>${P.length} cavalo(s) de pensão</small></div>`; })() : ''}
   </div>
+  ${pode('financeiro') ? `<div class="kpis"><div class="kpi"><small>A receber em ${mes.slice(5)}/${mes.slice(0, 4)}</small><b style="color:var(--ok)">${brl(somaF(pendMes, 'Receita'))}</b></div><div class="kpi"><small>A pagar em ${mes.slice(5)}/${mes.slice(0, 4)}</small><b style="color:var(--bad)">${brl(somaF(pendMes, 'Despesa'))}</b></div><div class="kpi" style="cursor:pointer" onclick="location.hash='financeiro'"><small>Parcelas atrasadas</small><b style="color:${atrasadas.length ? 'var(--bad)' : 'inherit'}">${atrasadas.length}</b><small>${brl(somaF(atrasadas, 'Receita'))} a receber · ${brl(somaF(atrasadas, 'Despesa'))} a pagar</small></div></div>` : ''}
   <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(320px,1fr))">
     <div class="card"><h3>Agenda sanitária</h3>${table([['Animal', s => esc(aname(s.animalId))], ['Tipo', s => esc(s.tipo)], ['Produto', s => esc(s.produto)], ['Quando', s => fdate(s.proxima) + ' ' + statusTag(daysUntil(s.proxima))]], alertas.slice(0, 8))}</div>
-    <div class="card"><h3>Previsão de partos</h3>${table([['Égua', r => esc(aname(r.eguaId))], ['Garanhão', r => esc(aname(r.garanhaoId))], ['Previsão', r => fdate(r.prev) + ` <span class="muted">(${daysUntil(r.prev)}d)</span>`]], partos)}
+    <div class="card"><h3>Previsão de partos</h3>${table([['Égua', r => r.receptoraId ? `${esc(aname(r.receptoraId))} <span class="tag">receptora</span><br><small class="muted">embrião de ${esc(aname(r.eguaId))}</small>` : esc(aname(r.eguaId))], ['Garanhão', r => esc(aname(r.garanhaoId))], ['Previsão', r => fdate(r.prev) + ` <span class="muted">(${daysUntil(r.prev)}d)</span>`]], partos)}
       ${dgPend.length ? `<p><span class="tag warn">${dgPend.length} diagnóstico(s) de gestação pendente(s)</span></p>` : ''}</div>
     <div class="card"><h3>Plantel por categoria</h3>${Object.entries(porCat).map(([k, v]) => `<div style="margin:8px 0"><div class="row" style="justify-content:space-between"><span>${esc(k)}</span><b>${v}</b></div><div class="bar"><i style="width:${v / ativos.length * 100}%"></i></div></div>`).join('') || '<p class="muted">Sem animais.</p>'}</div>
     <div class="card"><h3>Estoque abaixo do mínimo</h3>${table([['Item', e => esc(e.item)], ['Qtd.', e => `${e.quantidade} ${esc(e.unidade || '')}`], ['Mínimo', e => e.minimo]], baixo)}</div>
@@ -217,6 +233,10 @@ V.animal = () => {
   let body = '';
   if (state.tab === 'dados') body = `<div class="row" style="align-items:flex-start;gap:20px">${a.foto ? `<img src="${a.foto}" class="photo">` : '<div class="photo"></div>'}
     <div class="grid" style="flex:1">${[['Registro', a.registro], ['Microchip', a.chip], ['Sexo', a.sexo], ['Raça', a.raca], ['Pelagem', a.pelagem], ['Nascimento', fdate(a.nascimento) + (a.nascimento ? ` (${idade(a.nascimento)})` : '')], ['Categoria', a.categoria], ['Situação', a.status], ['Local', a.local], ['Pai', aname(a.paiId)], ['Mãe', aname(a.maeId)], ['Proprietário', a.proprietario], ['Criador', a.criador], ['Origem', a.origem], ['Valor estimado', a.valorEstimado ? brl(a.valorEstimado) : ''], ['À venda', a.aVenda === 'Sim' ? 'Sim – ' + brl(a.preco) : 'Não']].map(([k, v]) => `<div><label>${k}</label>${esc(v) || '—'}</div>`).join('')}
+    ${(() => { const eu = socioProprio(), comp = composicao(a.id), nossa = eu ? (comp[eu.id] || 0) : 100; const compra = DB.list('negocios').filter(n => n.animalId === a.id && n.tipo === 'Compra' && (!n.produto || n.produto === 'Animal')).reduce((t, n) => t + Number(n.valor), 0); const dif = a.valorEstimado && compra ? a.valorEstimado - compra : null;
+      return (nossa < 99.99 && a.posse !== 'Pensão' ? `<div><label>Participação do haras</label><b>${pct(Math.max(nossa, 0))}</b>${a.valorEstimado && nossa > 0 ? ` · nossa parte ${brl(a.valorEstimado * nossa / 100)}` : ''}</div>` : '') +
+        (compra ? `<div><label>Valor de compra</label>${brl(compra)}</div>` : '') +
+        (dif !== null ? `<div><label>Valorização</label><b style="color:${dif >= 0 ? 'var(--ok)' : 'var(--bad)'}">${dif >= 0 ? '+' : ''}${brl(dif)} (${dif >= 0 ? '+' : ''}${Math.round(dif / compra * 100)}%)</b></div>` : ''); })()}
     ${a.obs ? `<div class="full"><label>Observações</label>${esc(a.obs)}</div>` : ''}</div></div>
     <h4>Filhos (${filhos.length})</h4>${filhos.map(f => `<a href="#" onclick="state.animalId='${f.id}';render();return false">${esc(f.nome)}</a>`).join(' · ') || '<span class="muted">Nenhum</span>'}`;
   if (state.tab === 'genealogia') body = genealogia(a);
@@ -238,21 +258,45 @@ V.animal = () => {
       table([['Data', i => fdate(i.data)], ['Origem', i => esc(i.origem)], ['Descrição', i => esc(i.desc)], ['Valor', i => `<span style="color:${i.v >= 0 ? 'var(--ok)' : 'var(--bad)'}">${brl(i.v)}</span>`]], c.itens.slice().sort((x, y) => y.data.localeCompare(x.data)).slice(0, 200));
   }
   return `<div class="card"><div class="row" style="justify-content:space-between"><div><button class="sec" onclick="state.animalId=null;render()">← Voltar</button> <b style="font-size:20px;margin-left:8px">${esc(a.nome)}</b></div>
-    <div class="row"><button class="sec" onclick="window.print()">Imprimir ficha</button><button onclick="editAnimal('${a.id}')">Editar</button></div></div><br>
+    <div class="row"><button class="sec" onclick="verABCCMM('${a.id}')" title="Copia o nome e abre a busca da ABCCMM">🔎 ABCCMM</button>${a.sexo === 'Fêmea' && a.status === 'Ativo' ? `<button class="sec" onclick="openForm('Nova cobertura',F_REPRO,{eguaId:'${a.id}',dataCobertura:today(),resultadoDG:'Aguardando',status:'Coberta'},o=>DB.upsert('reproducao',o))">+ Cobertura</button><button class="sec" onclick="editNegocio(null,'Venda',{produto:'Embrião',doadoraId:'${a.id}'})">Vender embrião</button>` : ''}${a.status === 'Ativo' && a.posse !== 'Pensão' ? `<button class="sec" onclick="editNegocio(null,'Venda',{animalId:'${a.id}'})">Registrar venda</button>` : ''}<button class="sec" onclick="window.print()">Imprimir ficha</button><button onclick="editAnimal('${a.id}')">Editar</button></div></div><br>
     <div class="tabs">${tabs.map(([k, l]) => `<button class="${state.tab === k ? 'on' : ''}" onclick="state.tab='${k}';render()">${l}</button>`).join('')}</div>${body}</div>`;
 };
 
+function situacaoReceptora(r) {
+  const dt = c => c.dataInovulacao || c.dataCobertura || '';
+  const ult = DB.list('reproducao').filter(c => c.receptoraId === r.id).sort((a, b) => dt(b).localeCompare(dt(a)))[0];
+  if (!ult) return { ordem: 3, rotulo: 'Disponível', cls: '', info: 'Ainda sem inovulação registrada' };
+  const emb = `Embrião de ${aname(ult.eguaId)} × ${aname(ult.garanhaoId) || '?'}`;
+  if (ult.dataParto || ult.status === 'Parida') return { ordem: 2, rotulo: 'Parida', cls: '', cob: ult, info: (ult.dataParto ? `Pariu em ${fdate(ult.dataParto)} (há ${-daysUntil(ult.dataParto)} dias)` : 'Pariu') + (ult.potroId ? ` · potro: ${aname(ult.potroId)}` : '') };
+  if (ult.status === 'Gestante') { const pv = previsaoParto(ult); return { ordem: 0, rotulo: 'Prenhe', cls: 'ok', cob: ult, info: emb + (pv ? ` · parto previsto ${fdate(pv)} (${daysUntil(pv) >= 0 ? 'faltam ' + daysUntil(pv) : 'passou ' + -daysUntil(pv)} dias)` : '') }; }
+  if (ult.status === 'Coberta' || ult.resultadoDG === 'Aguardando') return { ordem: 1, rotulo: 'Aguardando diagnóstico', cls: 'warn', cob: ult, info: emb + (ult.dataInovulacao ? ` · inovulada em ${fdate(ult.dataInovulacao)} (há ${-daysUntil(ult.dataInovulacao)} dias)` : '') };
+  return { ordem: 3, rotulo: 'Disponível', cls: '', cob: ult, info: `Última: ${ult.resultadoDG || ult.status} (${fdate(dt(ult))})` };
+}
+V.receptoras = () => {
+  const rs = DB.list('animais').filter(a => a.categoria === 'Receptora' && a.status === 'Ativo').map(r => ({ r, s: situacaoReceptora(r) })).sort((a, b) => a.s.ordem - b.s.ordem || a.r.nome.localeCompare(b.r.nome));
+  const conta = o => rs.filter(x => x.s.ordem === o).length;
+  return `<div class="kpis"><div class="kpi"><small>Receptoras</small><b>${rs.length}</b></div><div class="kpi"><small>Prenhes</small><b style="color:var(--ok)">${conta(0)}</b></div><div class="kpi"><small>Aguardando diagnóstico</small><b>${conta(1)}</b></div><div class="kpi"><small>Disponíveis</small><b>${conta(3)}</b></div></div>
+  <div class="card">${table([['Receptora', x => `<a href="#" onclick="location.hash='animais';setTimeout(()=>{state.animalId='${x.r.id}';render()});return false"><b>${esc(x.r.nome)}</b></a>`], ['Situação', x => `<span class="tag ${x.s.cls}">${x.s.rotulo}</span>`], ['Detalhes', x => esc(x.s.info)]], rs,
+    x => (x.s.cob ? `<button class="lnk" onclick="openForm('Editar transferência',F_REPRO,DB.get('reproducao','${x.s.cob.id}'),o=>DB.upsert('reproducao',o))">Abrir</button>` : '') + (x.s.ordem >= 2 ? `<button class="lnk" onclick="openForm('Registrar inovulação',F_REPRO,{metodo:'Transferência de embrião',receptoraId:'${x.r.id}',dataInovulacao:today(),resultadoDG:'Aguardando',status:'Coberta'},o=>DB.upsert('reproducao',o))">+ Inovulação</button>` : ''))}
+  ${rs.length ? '' : '<p class="muted">Cadastre as receptoras em Animais com a categoria “Receptora”.</p>'}</div>`;
+};
 V.reproducao = () => {
-  const rows = DB.list('reproducao').slice().sort((a, b) => b.dataCobertura.localeCompare(a.dataCobertura));
+  if (state.rtab === 'receptoras') return abasRepro() + V.receptoras();
+  return abasRepro() + V.coberturas();
+};
+const abasRepro = () => `<div class="tabs">${[['coberturas', 'Coberturas'], ['receptoras', 'Receptoras']].map(([k, l]) => `<button class="${(state.rtab || 'coberturas') === k ? 'on' : ''}" onclick="state.rtab='${k}';render()">${l}</button>`).join('')}</div>`;
+V.coberturas = () => {
+  const dt = r => r.dataCobertura || r.dataInovulacao || '';
+  const rows = DB.list('reproducao').slice().sort((a, b) => dt(b).localeCompare(dt(a)));
   const st = (r) => { const c = { Gestante: 'ok', Parida: 'ok', Vazia: 'bad', Aborto: 'bad', Coberta: 'warn' }[r.status]; return `<span class="tag ${c || ''}">${esc(r.status)}</span>`; };
   const cnt = (s) => rows.filter(r => r.status === s).length;
   const dgs = rows.filter(r => r.resultadoDG && r.resultadoDG !== 'Aguardando'); const taxa = dgs.length ? Math.round(dgs.filter(r => r.resultadoDG === 'Prenhe' || r.resultadoDG === 'Gemelar').length / dgs.length * 100) : 0;
   return `<div class="kpis"><div class="kpi"><small>Cobertas (aguardando DG)</small><b>${cnt('Coberta')}</b></div><div class="kpi"><small>Gestantes</small><b>${cnt('Gestante')}</b></div><div class="kpi"><small>Paridas</small><b>${cnt('Parida')}</b></div><div class="kpi"><small>Taxa de prenhez</small><b>${taxa}%</b></div></div>
   <div class="card">${table([
-    ['Égua', r => esc(aname(r.eguaId))], ['Garanhão', r => esc(aname(r.garanhaoId))], ['Método', r => esc(r.metodo)],
-    ['Cobertura', r => fdate(r.dataCobertura) + `<br><small class="muted">${daysUntil(r.dataCobertura) * -1} dias</small>`],
-    ['DG', r => esc(r.resultadoDG || '') + (r.dataDG ? `<br><small class="muted">${fdate(r.dataDG)}</small>` : (r.resultadoDG === 'Aguardando' ? `<br><small class="muted">sugerido ${fdate(addDays(r.dataCobertura, 14))}</small>` : ''))],
-    ['Previsão parto', r => r.status === 'Gestante' ? fdate(addDays(r.dataCobertura, GESTACAO)) : (r.dataParto ? 'Pariu ' + fdate(r.dataParto) : '—')],
+    ['Égua', r => esc(aname(r.eguaId)) + (r.receptoraId ? `<br><small class="muted">receptora: ${esc(aname(r.receptoraId))}</small>` : '')], ['Garanhão', r => esc(aname(r.garanhaoId))], ['Método', r => esc(r.metodo)],
+    ['Cobertura', r => dt(r) ? fdate(dt(r)) + `<br><small class="muted">${daysUntil(dt(r)) * -1} dias${!r.dataCobertura ? ' (inovulação)' : ''}</small>` : '—'],
+    ['DG', r => esc(r.resultadoDG || '') + (r.dataDG ? `<br><small class="muted">${fdate(r.dataDG)}</small>` : (r.resultadoDG === 'Aguardando' && dt(r) ? `<br><small class="muted">sugerido ${fdate(addDays(dt(r), 14))}</small>` : ''))],
+    ['Previsão parto', r => previsaoParto(r) ? fdate(previsaoParto(r)) : (r.dataParto ? 'Pariu ' + fdate(r.dataParto) : '—')],
     ['Situação', st],
   ], rows, r => `${r.status === 'Gestante' ? `<button class="lnk" onclick="registrarParto('${r.id}')">Registrar parto</button>` : ''}<button class="lnk" onclick="openForm('Editar evento reprodutivo',F_REPRO,DB.get('reproducao','${r.id}'),o=>DB.upsert('reproducao',o))">Editar</button><button class="del" onclick="del('reproducao','${r.id}')">Excluir</button>`)}</div>`;
 };
@@ -269,7 +313,10 @@ window.registrarParto = (id) => {
 
 V.sanidade = () => {
   const rows = DB.list('sanidade').slice().sort((a, b) => b.data.localeCompare(a.data));
-  return `<div class="card">${table([
+  const pend = pendenciasSanitarias();
+  return `<div class="card"><h3>Próximas doses e retornos</h3>${table([['Animal', s => esc(aname(s.animalId))], ['Tipo', s => esc(s.tipo)], ['Produto', s => esc(s.produto)], ['Quando', s => fdate(s.proxima) + ' ' + statusTag(daysUntil(s.proxima))]], pend,
+    s => `<button class="lnk" onclick="openForm('Registrar aplicação',F_SAN,{animalId:'${s.animalId}',tipo:${esc(JSON.stringify(s.tipo))},produto:${esc(JSON.stringify(s.produto || ''))},data:today()},o=>DB.upsert('sanidade',o))">Registrar aplicação</button>`)}</div>
+  <div class="card"><h3>Histórico</h3>${table([
     ['Data', s => fdate(s.data)], ['Animal', s => esc(aname(s.animalId))], ['Tipo', s => esc(s.tipo)], ['Produto / procedimento', s => esc(s.produto)],
     ['Próxima', s => s.proxima ? fdate(s.proxima) + ' ' + statusTag(daysUntil(s.proxima)) : '—'], ['Responsável', s => esc(s.responsavel)], ['Custo', s => s.custo ? brl(s.custo) : ''],
   ], rows, s => `<button class="lnk" onclick="openForm('Editar registro',F_SAN,DB.get('sanidade','${s.id}'),o=>DB.upsert('sanidade',o))">Editar</button><button class="del" onclick="del('sanidade','${s.id}')">Excluir</button>`)}</div>`;
@@ -291,7 +338,9 @@ V.financeiro = () => {
   const rec = sum(rows, 'Receita'), desp = sum(rows, 'Despesa');
   const pend = all.filter(f => f.status === 'Pendente');
   const porCentro = {}; rows.forEach(f => { const c = f.centro || 'Sem centro'; porCentro[c] = porCentro[c] || { r: 0, d: 0 }; porCentro[c][f.tipo === 'Receita' ? 'r' : 'd'] += Number(f.valor); });
-  return `<div class="card row"><label style="margin:0">Período:</label><input type="month" value="${mes}" onchange="state.finMes=this.value;render()" style="max-width:180px"><button class="sec" onclick="state.finMes='';render()">Todo o período</button>
+  const atras = all.filter(f => f.status === 'Pendente' && f.data < today()).sort((a, b) => a.data.localeCompare(b.data));
+  return `${atras.length ? `<div class="card" style="border-color:var(--bad)"><h3>⚠️ Parcelas atrasadas (${atras.length})</h3>${table([['Vencimento', f => fdate(f.data) + ` <span class="tag bad">${-daysUntil(f.data)}d</span>`], ['Descrição', f => esc(f.descricao) + (f.contraparte ? `<br><small class="muted">${esc(f.contraparte)}</small>` : '')], ['Valor', f => `<b style="color:${f.tipo === 'Receita' ? 'var(--ok)' : 'var(--bad)'}">${f.tipo === 'Despesa' ? '-' : ''}${brl(f.valor)}</b>`]], atras.slice(0, 50), f => `<button class="lnk" onclick="baixar('${f.id}')">Baixar</button>`)}</div>` : ''}
+  <div class="card row"><label style="margin:0">Período:</label><input type="month" value="${mes}" onchange="state.finMes=this.value;render()" style="max-width:180px"><button class="sec" onclick="state.finMes='';render()">Todo o período</button>
     <span class="muted">Centros de custo:</span> ${DB.data.centrosCusto.map(c => `<span class="tag">${esc(c)}</span>`).join(' ')} <button class="lnk" onclick="novoCentro()">+ centro</button></div>
   <div class="kpis"><div class="kpi"><small>Receitas</small><b style="color:var(--ok)">${brl(rec)}</b></div><div class="kpi"><small>Despesas</small><b style="color:var(--bad)">${brl(desp)}</b></div><div class="kpi"><small>Resultado</small><b>${brl(rec - desp)}</b></div><div class="kpi"><small>Contas pendentes</small><b>${pend.length}</b><small>${brl(pend.reduce((s, f) => s + (f.tipo === 'Despesa' ? -1 : 1) * f.valor, 0))}</small></div></div>
   <div class="card"><h3>Demonstrativo por centro de custo</h3>${table([['Centro', ([c]) => esc(c)], ['Receitas', ([, v]) => brl(v.r)], ['Despesas', ([, v]) => brl(v.d)], ['Resultado', ([, v]) => `<b style="color:${v.r - v.d >= 0 ? 'var(--ok)' : 'var(--bad)'}">${brl(v.r - v.d)}</b>`]], Object.entries(porCentro))}</div>
@@ -522,8 +571,12 @@ function lancarFinanceiro(n) {
 }
 function addMonths(d, m) { const x = new Date(d + 'T00:00'); x.setMonth(x.getMonth() + m); return x.toISOString().slice(0, 10); }
 
-window.editNegocio = (id, tipoPadrao) => {
-  const n = id ? JSON.parse(JSON.stringify(DB.get('negocios', id))) : { tipo: tipoPadrao || 'Compra', data: today(), pctAnimal: 100, parcelas: 1, comissaoPct: 0, quitado: 'Sim', participacoes: socioProprio() ? [{ socioId: socioProprio().id, pct: 100 }] : [] };
+function gerarParcelas(plano) { const out = []; plano.forEach(g => { for (let k = 0; k < g.qtd; k++) out.push({ numero: out.length + 1, vencimento: addMonths(g.inicio, k), valor: g.valor, forma: g.forma, pagoEm: '' }); }); return out; }
+const FORMAS = ['PIX', 'Boleto', 'Transferência', 'Cheque', 'Promissória', 'Cartão', 'Dinheiro', 'Permuta'];
+window.editNegocio = (id, tipoPadrao, extra) => {
+  const n = id ? JSON.parse(JSON.stringify(DB.get('negocios', id))) : { tipo: tipoPadrao || 'Compra', produto: 'Animal', data: today(), pctAnimal: 100, comissaoPct: 0, participacoes: socioProprio() ? [{ socioId: socioProprio().id, pct: 100 }] : [], ...(extra || {}) };
+  const planoIni = n.plano && n.plano.length ? n.plano : [{ qtd: Number(n.parcelas) || 1, valor: n.valor ? Math.round(n.valor / (Number(n.parcelas) || 1) * 100) / 100 : '', forma: 'PIX', inicio: n.primeiroVenc || n.data }];
+  const linhaGrupo = (g, i) => `<div class="row grp" style="margin-bottom:6px;flex-wrap:wrap"><input type="number" min="1" step="1" data-k="qtd" value="${g.qtd || 1}" style="max-width:80px" title="Nº de parcelas"> × <input type="number" step="any" data-k="valor" value="${g.valor ?? ''}" placeholder="valor de cada" style="max-width:150px"> <select data-k="forma" style="max-width:150px">${FORMAS.map(f => `<option ${f === g.forma ? 'selected' : ''}>${f}</option>`).join('')}</select> 1º venc. <input type="date" data-k="inicio" value="${g.inicio || today()}" style="max-width:170px">${i > 0 ? '<button type="button" class="del" onclick="this.parentNode.remove();window._negCalc()">✕</button>' : ''}</div>`;
   const m = document.createElement('div'); m.className = 'modal';
   const socOpts = (sel) => DB.list('socios').map(s => `<option value="${s.id}" ${s.id === sel ? 'selected' : ''}>${esc(s.nome)}</option>`).join('');
   const linhaSoc = (p = {}) => `<div class="row soc" style="margin-bottom:6px"><select style="flex:2">${socOpts(p.socioId)}</select><input type="number" step="any" placeholder="%" value="${p.pct ?? ''}" style="flex:1;max-width:110px"><span class="muted vl" style="min-width:120px"></span><button type="button" class="del" onclick="this.parentNode.remove();window._negCalc()">✕</button></div>`;
@@ -539,12 +592,11 @@ window.editNegocio = (id, tipoPadrao) => {
       ${field({ k: 'data', l: 'Data do negócio', t: 'date', req: true }, n.data)}
       ${field({ k: 'contraparte', l: n.tipo === 'Venda' ? 'Comprador' : 'Vendedor' }, n.contraparte)}
       ${field({ k: 'pctAnimal', l: '% do animal negociado (100 = animal inteiro)', t: 'number', req: true }, n.pctAnimal)}
-      ${field({ k: 'valor', l: 'Valor total do negócio (R$)', t: 'number', req: true }, n.valor)}
       ${field({ k: 'comissaoPct', l: 'Comissão / corretagem (%)', t: 'number' }, n.comissaoPct)}
       ${field({ k: 'intermediario', l: 'Corretor / leilão' }, n.intermediario)}
-      ${field({ k: 'parcelas', l: 'Nº de parcelas' + (n.parcelasLista ? ' (importadas: altere só se quiser recalcular)' : ''), t: 'number' }, n.parcelas)}
-      ${field({ k: 'primeiroVenc', l: '1º vencimento', t: 'date' }, n.primeiroVenc || n.data)}
-      ${field({ k: 'quitado', l: 'Parcelas vencidas já pagas?', t: 'select', opts: ['Sim', 'Não'] }, n.quitado)}
+      <div class="full"><label>Condições de pagamento (ex.: 1 × 15.000 PIX de entrada + 40 × 1.100 boleto)</label><div id="grupos">${planoIni.map(linhaGrupo).join('')}</div>
+        <div class="row"><button type="button" class="sec" id="addGrupo">+ Condição</button><b id="totalPlano"></b></div>
+        ${id ? (n.parcelasLista || []).some(q => q.pagoEm) ? '<p class="muted">Se mudar as condições, as parcelas são refeitas; as que já estão pagas continuam pagas.</p>' : '' : `<label style="margin-top:8px"><input type="checkbox" id="f_quitarVencidas" style="width:auto"> Marcar como pagas as parcelas já vencidas (para lançar negócios antigos)</label>`}</div>
       <div class="full"><label>Sociedade: participação de cada sócio neste negócio (deve somar 100%)</label><div id="socs">${(n.participacoes.length ? n.participacoes : [{}]).map(linhaSoc).join('')}</div>
         <div class="row"><button type="button" class="sec" id="addSoc">+ Sócio</button><button type="button" class="lnk" onclick="novoSocio(()=>{})">Cadastrar novo sócio</button><b id="somaPct"></b></div>
         <p class="muted" id="sugestao"></p></div>
@@ -553,8 +605,12 @@ window.editNegocio = (id, tipoPadrao) => {
   document.body.appendChild(m);
   m.querySelectorAll('[data-x]').forEach(b => b.onclick = () => m.remove());
   $('#addSoc', m).onclick = () => { $('#socs', m).insertAdjacentHTML('beforeend', linhaSoc()); window._negCalc(); };
+  const lerPlano = () => [...m.querySelectorAll('.grp')].map(r => { const v = k => r.querySelector(`[data-k="${k}"]`).value; return { qtd: parseInt(v('qtd')) || 0, valor: Number(v('valor')) || 0, forma: v('forma'), inicio: v('inicio') }; });
+  $('#addGrupo', m).onclick = () => { const p = lerPlano(), u = p[p.length - 1]; $('#grupos', m).insertAdjacentHTML('beforeend', linhaGrupo({ qtd: 1, valor: '', forma: u?.forma || 'PIX', inicio: u?.inicio ? addMonths(u.inicio, u.qtd || 1) : today() }, 1)); window._negCalc(); };
   window._negCalc = () => {
-    const v = Number($('#f_valor', m).value) || 0, liq = v * (1 - (Number($('#f_comissaoPct', m).value) || 0) / 100); let s = 0;
+    const plano = lerPlano(), v = plano.reduce((t, g) => t + g.qtd * g.valor, 0), nq = plano.reduce((t, g) => t + g.qtd, 0);
+    $('#totalPlano', m).textContent = ` Total: ${brl(v)} em ${nq} parcela(s)`;
+    const liq = v * (1 - (Number($('#f_comissaoPct', m).value) || 0) / 100); let s = 0;
     m.querySelectorAll('.soc').forEach(r => { const p = Number(r.querySelector('input').value) || 0; s += p; r.querySelector('.vl').textContent = brl(liq * p / 100); });
     $('#somaPct', m).innerHTML = ` Soma: <span style="color:${Math.abs(s - 100) < 0.01 ? 'var(--ok)' : 'var(--bad)'}">${pct(s)}</span>`;
     const aid = $('#f_animalId', m).value, isVenda = $('#f_tipo', m).value === 'Venda';
@@ -575,6 +631,7 @@ window.editNegocio = (id, tipoPadrao) => {
   // numa venda nova, ao escolher o animal já preenche a divisão pela composição atual
   $('#f_animalId', m).addEventListener('change', () => { if (!id && $('#f_tipo', m).value === 'Venda') usarComp(); });
   m.addEventListener('input', window._negCalc); m.addEventListener('change', window._negCalc); window._negCalc();
+  if (!id && n.tipo === 'Venda' && n.animalId) usarComp();
   m.querySelector('form').onsubmit = (e) => {
     e.preventDefault();
     const g = (k) => $('#f_' + k, m)?.value ?? '';
@@ -586,9 +643,15 @@ window.editNegocio = (id, tipoPadrao) => {
     const produto = g('produto');
     if (produto !== 'Animal') animalId = '';
     else if (!animalId) return alert('Selecione o animal (ou informe o nome do animal novo, na compra).');
-    const mudouValor = n.parcelasLista && (Number(g('valor')) !== Number(n.valor) || Number(g('parcelas')) !== Number(n.parcelas));
-    const o = { ...n, tipo: g('tipo'), produto, doadoraId: g('doadoraId'), garanhaoId: g('garanhaoId'), quantidade: Number(g('quantidade')) || 1, animalId, data: g('data'), contraparte: g('contraparte'), pctAnimal: Number(g('pctAnimal')) || 100, valor: Number(g('valor')) || 0, comissaoPct: Number(g('comissaoPct')) || 0, intermediario: g('intermediario'), parcelas: Number(g('parcelas')) || 1, primeiroVenc: g('primeiroVenc') || g('data'), quitado: g('quitado'), participacoes: parts, obs: g('obs') };
-    if (mudouValor) delete o.parcelasLista; // valor/parcelas alterados: parcelas são recalculadas
+    const plano = lerPlano();
+    if (plano.some(gr => gr.qtd < 1 || !gr.inicio || !gr.valor)) return alert('Confira as condições de pagamento (quantidade, valor e 1º vencimento).');
+    const valorTotal = Math.round(plano.reduce((t, gr) => t + gr.qtd * gr.valor, 0) * 100) / 100;
+    let parcelasLista = n.parcelasLista;
+    if (!parcelasLista || JSON.stringify(plano) !== JSON.stringify(n.plano || null)) {
+      const antigas = n.parcelasLista || [];
+      parcelasLista = gerarParcelas(plano).map((q, i) => ({ ...q, pagoEm: antigas[i]?.pagoEm || ($('#f_quitarVencidas', m)?.checked && q.vencimento <= today() ? q.vencimento : '') }));
+    }
+    const o = { ...n, tipo: g('tipo'), produto, doadoraId: g('doadoraId'), garanhaoId: g('garanhaoId'), quantidade: Number(g('quantidade')) || 1, animalId, data: g('data'), contraparte: g('contraparte'), pctAnimal: Number(g('pctAnimal')) || 100, valor: valorTotal, comissaoPct: Number(g('comissaoPct')) || 0, intermediario: g('intermediario'), plano, parcelasLista, parcelas: parcelasLista.length, primeiroVenc: parcelasLista[0]?.vencimento || g('data'), participacoes: parts, obs: g('obs') };
     DB.upsert('negocios', o); lancarFinanceiro(o);
     // movimentação e situação do animal
     if (!animalId) { m.remove(); render(); return; }
