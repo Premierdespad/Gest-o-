@@ -196,19 +196,26 @@ V.dashboard = () => {
   </div>`;
 };
 
-V.animais = () => {
-  if (state.animalId) return V.animal();
-  const q = state.filtro.toLowerCase(), fs = state.fAnimais || 'ativos';
-  const FILTROS = { ativos: ['Ativos (plantel)', a => a.status !== 'Externo' && !['Vendido', 'Morto'].includes(a.status)], haras: ['Todos do haras (inclui vendidos)', a => a.status !== 'Externo'], proprios: ['Só meus (sem pensão)', a => a.status === 'Ativo' && a.posse !== 'Pensão'], pensao: ['Só pensão', a => a.status === 'Ativo' && a.posse === 'Pensão'], vendidos: ['Vendidos', a => a.status === 'Vendido'], mortos: ['Mortos', a => a.status === 'Morto'], externos: ['Pais e garanhões de fora (só genealogia)', a => a.status === 'Externo'] };
-  const rows = DB.list('animais').filter(FILTROS[fs][1]).filter(a => !q || [a.nome, a.registro, a.raca, a.categoria, a.status, a.local].join(' ').toLowerCase().includes(q)).sort((a, b) => a.nome.localeCompare(b.nome));
-  return `<div class="card"><div class="row" style="margin-bottom:12px"><input placeholder="Buscar por nome, registro, raça, categoria..." value="${esc(state.filtro)}" oninput="state.filtro=this.value;render();this.focus();this.setSelectionRange(this.value.length,this.value.length)" style="max-width:380px">
-    <select onchange="state.fAnimais=this.value;render()" style="max-width:280px">${Object.entries(FILTROS).map(([k, [l]]) => `<option value="${k}" ${k === fs ? 'selected' : ''}>${l}</option>`).join('')}</select><span class="muted">${rows.length} animal(is)</span></div>
-  ${table([
+const FILTROS_ANIMAIS = { ativos: ['Ativos (plantel)', a => a.status !== 'Externo' && !['Vendido', 'Morto'].includes(a.status)], haras: ['Todos do haras (inclui vendidos)', a => a.status !== 'Externo'], proprios: ['Só meus (sem pensão)', a => a.status === 'Ativo' && a.posse !== 'Pensão'], pensao: ['Só pensão', a => a.status === 'Ativo' && a.posse === 'Pensão'], vendidos: ['Vendidos', a => a.status === 'Vendido'], mortos: ['Mortos', a => a.status === 'Morto'], externos: ['Pais e garanhões de fora (só genealogia)', a => a.status === 'Externo'] };
+const semAcento = (t) => String(t || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+function listaAnimais() {
+  const q = semAcento(state.filtro), fs = state.fAnimais || 'ativos';
+  const rows = DB.list('animais').filter(FILTROS_ANIMAIS[fs][1]).filter(a => !q || semAcento([a.nome, a.registro, a.raca, a.categoria, a.status, a.local, a.pelagem].join(' ')).includes(q)).sort((a, b) => a.nome.localeCompare(b.nome));
+  return `<p class="muted" style="margin:0 0 8px">${rows.length} animal(is)</p>` + table([
     ['', a => a.foto ? `<img src="${a.foto}" class="thumb">` : '<span class="thumb"></span>'],
     ['Nome', a => `<a href="#" onclick="state.animalId='${a.id}';state.tab='dados';render();return false"><b>${esc(a.nome)}</b></a><br><small class="muted">${esc(a.registro || '')}</small>`],
     ['Sexo', a => esc(a.sexo)], ['Idade', a => idade(a.nascimento)], ['Posse', a => a.posse === 'Pensão' ? `<span class="tag warn">Pensão</span><br><small class="muted">${esc(a.proprietario || '')}</small>` : '<span class="tag">Próprio</span>'], ['Raça', a => esc(a.raca)], ['Categoria', a => esc(a.categoria)], ['Local', a => esc(a.local)],
     ['Situação', a => `<span class="tag ${a.status === 'Ativo' ? 'ok' : a.status === 'Morto' ? 'bad' : ''}">${esc(a.status)}</span>`],
-  ], rows, a => `<button class="lnk" onclick="editAnimal('${a.id}')">Editar</button><button class="del" onclick="del('animais','${a.id}')">Excluir</button>`)}</div>`;
+  ], rows, a => `<button class="lnk" onclick="editAnimal('${a.id}')">Editar</button><button class="del" onclick="del('animais','${a.id}')">Excluir</button>`);
+}
+// a busca atualiza só a lista: o campo continua com o cursor enquanto você digita
+window.buscarAnimais = (v) => { state.filtro = v; const el = document.getElementById('listaAnimais'); if (el) el.innerHTML = listaAnimais(); };
+V.animais = () => {
+  if (state.animalId) return V.animal();
+  const fs = state.fAnimais || 'ativos';
+  return `<div class="card"><div class="row" style="margin-bottom:12px"><input id="buscaAnimais" type="search" placeholder="Buscar por nome, registro, raça, pelagem..." value="${esc(state.filtro)}" oninput="buscarAnimais(this.value)" autocomplete="off" style="max-width:380px">
+    <select onchange="state.fAnimais=this.value;render()" style="max-width:280px">${Object.entries(FILTROS_ANIMAIS).map(([k, [l]]) => `<option value="${k}" ${k === fs ? 'selected' : ''}>${l}</option>`).join('')}</select></div>
+  <div id="listaAnimais">${listaAnimais()}</div></div>`;
 };
 window.editAnimal = (id) => openForm(id ? 'Editar animal' : 'Novo animal', F_ANIMAL, id ? animal(id) : { status: 'Ativo', aVenda: 'Não', posse: 'Próprio', pesoRateio: 1, dataEntrada: today() }, o => DB.upsert('animais', o));
 
@@ -848,7 +855,9 @@ function render() {
   $('#harasNome').textContent = DB.data.config.haras;
   $('#title').textContent = MODULOS.find(m => m[0] === state.view)[1];
   $('#actions').innerHTML = (ACOES[state.view] || (() => ''))();
+  const foco = document.activeElement && document.activeElement.id && $('#content').contains(document.activeElement) ? { id: document.activeElement.id, ini: document.activeElement.selectionStart, fim: document.activeElement.selectionEnd } : null;
   $('#content').innerHTML = V[state.view]();
+  if (foco) { const el = document.getElementById(foco.id); if (el) { el.focus(); try { el.setSelectionRange(foco.ini, foco.fim); } catch (e) { /* campo sem cursor */ } } }
   $('.side').classList.remove('open');
 }
 window.addEventListener('hashchange', () => { state.view = location.hash.slice(1) || 'dashboard'; state.animalId = null; state.filtro = ''; render(); });
