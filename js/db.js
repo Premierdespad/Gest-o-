@@ -8,6 +8,7 @@ const DB = {
     if (!this.data) { this.data = seed(); this.save(); }
     // migração de versões anteriores
     (this.data.animais || []).forEach(a => { a.posse = a.posse || 'Próprio'; if (!a.pesoRateio) a.pesoRateio = 1; });
+    this.data.negocios = this.data.negocios || []; this.data.socios = this.data.socios || [];
     if (!this.data.centrosCusto.includes('Pensão')) this.data.centrosCusto.unshift('Pensão');
     return this.data;
   },
@@ -16,6 +17,7 @@ const DB = {
   get(col, id) { return this.list(col).find(x => x.id === id); },
   upsert(col, obj) {
     const l = this.list(col);
+    obj.atualizadoEm = new Date().toISOString(); // usado na sincronização com o site
     if (!obj.id) { obj.id = uid(); l.push(obj); }
     else { const i = l.findIndex(x => x.id === obj.id); i >= 0 ? (l[i] = { ...l[i], ...obj }) : l.push(obj); }
     this.save(); return obj;
@@ -33,7 +35,7 @@ function emptyDb() {
     config: { haras: 'Meu Haras', usuarioAtual: null },
     animais: [], biometria: [], movimentacoes: [], reproducao: [], sanidade: [],
     financeiro: [], centrosCusto: ['Pensão', 'Reprodução', 'Alimentação', 'Sanidade', 'Pessoal', 'Instalações', 'Vendas', 'Eventos'],
-    estoque: [], usuarios: [{ id: uid(), nome: 'Administrador', email: 'admin@haras.local', perfil: 'Administrador', ativo: 'Sim' }],
+    estoque: [], negocios: [], socios: [], usuarios: [{ id: uid(), nome: 'Administrador', email: 'admin@haras.local', perfil: 'Administrador', ativo: 'Sim' }],
     site: { titulo: 'Meu Haras', slogan: 'Criação com tradição e qualidade', sobre: '', telefone: '', email: '', endereco: '', instagram: '', cor: '#7a4b2a', banner: '' },
   };
 }
@@ -74,6 +76,11 @@ function seed() {
   F({ tipo: 'Receita', data: today(-14), descricao: 'Reembolso ferrageamento - Zorro', valor: 180, centro: 'Pensão', animalId: p1.id, contraparte: 'Carlos Mendes' });
   F({ tipo: 'Despesa', data: today(-25), descricao: 'Energia e água', valor: 700, centro: 'Instalações', rateio: 'Todos os animais' });
   F({ tipo: 'Despesa', data: today(-5), descricao: 'Serragem para baias de pensão', valor: 400, centro: 'Pensão', rateio: 'Somente pensão' });
+  const eu = { id: uid(), nome: 'Haras Vale Dourado (nós)', proprio: 'Sim' }, s1 = { id: uid(), nome: 'Roberto Lima', telefone: '(35) 97777-2222', proprio: 'Não' }, s2 = { id: uid(), nome: 'Marcos Andrade', proprio: 'Não' };
+  db.socios.push(eu, s1, s2);
+  db.negocios.push({ id: uid(), tipo: 'Compra', animalId: m2.id, data: '2019-03-10', contraparte: 'Haras Boa Esperança', pctAnimal: 100, valor: 60000, comissaoPct: 0, parcelas: 1, primeiroVenc: '2019-03-10', quitado: 'Sim', participacoes: [{ socioId: eu.id, pct: 50 }, { socioId: s1.id, pct: 50 }] });
+  db.negocios.push({ id: uid(), tipo: 'Compra', animalId: g.id, data: '2016-02-10', contraparte: 'Haras Serra Azul', pctAnimal: 100, valor: 120000, comissaoPct: 0, parcelas: 1, primeiroVenc: '2016-02-10', quitado: 'Sim', participacoes: [{ socioId: eu.id, pct: 60 }, { socioId: s1.id, pct: 20 }, { socioId: s2.id, pct: 20 }] });
+  db.negocios.push({ id: uid(), tipo: 'Venda', animalId: g.id, data: today(-20), contraparte: 'Fazenda Santa Clara', pctAnimal: 20, valor: 40000, comissaoPct: 5, parcelas: 4, primeiroVenc: today(-20), quitado: 'Sim', participacoes: [{ socioId: s2.id, pct: 100 }], obs: 'Marcos vendeu a cota dele (20%)' });
   db.estoque.push({ id: uid(), item: 'Ração (saco 40kg)', categoria: 'Alimentação', quantidade: 25, unidade: 'saco', minimo: 10, custoUnit: 110 });
   db.estoque.push({ id: uid(), item: 'Feno (fardo)', categoria: 'Alimentação', quantidade: 6, unidade: 'fardo', minimo: 15, custoUnit: 35 });
   db.estoque.push({ id: uid(), item: 'Ivermectina', categoria: 'Medicamento', quantidade: 12, unidade: 'dose', minimo: 5, custoUnit: 30 });

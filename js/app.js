@@ -13,7 +13,7 @@ const GESTACAO = 340;
 
 // ---------- Perfis e permissões ----------
 const MODULOS = [
-  ['dashboard', 'Painel'], ['animais', 'Animais'], ['reproducao', 'Reprodução'], ['sanidade', 'Sanidade'],
+  ['dashboard', 'Painel'], ['animais', 'Animais'], ['reproducao', 'Reprodução'], ['negocios', 'Compra e Venda'], ['sanidade', 'Sanidade'],
   ['financeiro', 'Financeiro'], ['custos', 'Custos e Pensão'], ['estoque', 'Estoque'], ['relatorios', 'Relatórios'], ['site', 'Site do Haras'],
   ['usuarios', 'Usuários'], ['config', 'Configurações'],
 ];
@@ -21,7 +21,7 @@ const PERFIS = {
   'Administrador': MODULOS.map(m => m[0]),
   'Veterinário': ['dashboard', 'animais', 'reproducao', 'sanidade', 'relatorios'],
   'Funcionário': ['dashboard', 'animais', 'sanidade', 'estoque'],
-  'Financeiro': ['dashboard', 'financeiro', 'custos', 'estoque', 'relatorios'],
+  'Financeiro': ['dashboard', 'negocios', 'financeiro', 'custos', 'estoque', 'relatorios'],
 };
 function usuarioAtual() {
   const u = DB.get('usuarios', DB.data.config.usuarioAtual) || DB.list('usuarios')[0];
@@ -324,7 +324,7 @@ function calcCustos(ini, fim) {
   const R = (id) => out[id] || (out[id] = { dias: diasPresente(animal(id) || {}, ini, fim), diretos: 0, rateio: 0, receitas: 0, itens: [] });
   an.forEach(a => { if (diasPresente(a, ini, fim) > 0) R(a.id); });
   const noPer = (d) => d && d >= ini && d <= fim;
-  DB.list('financeiro').filter(f => noPer(f.data)).forEach(f => {
+  DB.list('financeiro').filter(f => noPer(f.data) && !f.negocioId).forEach(f => { // compra/venda = investimento, fica no módulo Compra e Venda
     const v = Number(f.valor) || 0;
     if (f.animalId) {
       const r = R(f.animalId);
@@ -374,7 +374,7 @@ V.custos = () => {
     const L = linhas(a => a.posse !== 'Pensão');
     const tot = L.reduce((s, x) => s + x.custo, 0), rec = L.reduce((s, x) => s + x.receitas, 0);
     const porCat = {}; L.forEach(x => { const k = x.a.categoria || 'Sem categoria'; porCat[k] = porCat[k] || { n: 0, c: 0 }; porCat[k].n++; porCat[k].c += x.custo; });
-    body = `<div class="kpis"><div class="kpi"><small>Animais de criação</small><b>${L.length}</b></div><div class="kpi"><small>Custo total no período</small><b style="color:var(--bad)">${brl(tot)}</b></div><div class="kpi"><small>Custo médio por animal/mês</small><b>${brl(tot / Math.max(L.length, 1) / meses)}</b></div><div class="kpi"><small>Receitas da criação (vendas, coberturas)</small><b style="color:var(--ok)">${brl(rec)}</b></div></div>
+    body = `<div class="kpis"><div class="kpi"><small>Animais de criação</small><b>${L.length}</b></div><div class="kpi"><small>Custo total no período</small><b style="color:var(--bad)">${brl(tot)}</b></div><div class="kpi"><small>Custo médio por animal/mês</small><b>${brl(tot / Math.max(L.length, 1) / meses)}</b></div><div class="kpi"><small>Receitas ligadas aos animais (coberturas etc.)</small><b style="color:var(--ok)">${brl(rec)}</b></div></div>
     <div class="card"><h3>Custo por categoria</h3>${table([['Categoria', ([k]) => esc(k)], ['Animais', ([, v]) => v.n], ['Custo no período', ([, v]) => brl(v.c)], ['Custo médio/animal/mês', ([, v]) => brl(v.c / v.n / meses)]], Object.entries(porCat))}</div>
     <div class="card"><h3>Custo por animal</h3>${table([
       ['Animal', x => `<a href="#" onclick="location.hash='animais';setTimeout(()=>{state.animalId='${x.a.id}';state.tab='financeiro';render()});return false"><b>${esc(x.a.nome)}</b></a>`], ['Categoria', x => esc(x.a.categoria)],
@@ -388,7 +388,8 @@ V.custos = () => {
     const s = (fn) => fin.filter(fn).reduce((t, f) => t + Number(f.valor), 0);
     const P = linhas(a => a.posse === 'Pensão'), Cr = linhas(a => a.posse !== 'Pensão');
     const naoRat = s(f => f.tipo === 'Despesa' && !f.animalId && f.rateio === 'Não ratear');
-    const rows = [['Pensão', P.reduce((t, x) => t + x.receitas, 0), P.reduce((t, x) => t + x.custo, 0)], ['Criação', Cr.reduce((t, x) => t + x.receitas, 0), Cr.reduce((t, x) => t + x.custo, 0)], ['Receitas sem animal / despesas não rateadas', s(f => f.tipo === 'Receita' && !f.animalId), naoRat]];
+    const neg = (t) => fin.filter(f => f.negocioId && f.tipo === t).reduce((a, f) => a + Number(f.valor), 0);
+    const rows = [['Pensão', P.reduce((t, x) => t + x.receitas, 0), P.reduce((t, x) => t + x.custo, 0)], ['Criação', Cr.reduce((t, x) => t + x.receitas, 0), Cr.reduce((t, x) => t + x.custo, 0)], ['Receitas sem animal / despesas não rateadas', s(f => f.tipo === 'Receita' && !f.animalId), naoRat], ['Compra e venda de animais (nossa parte)', neg('Receita'), neg('Despesa')]];
     const R_ = rows.reduce((t, r) => t + r[1], 0), D_ = rows.reduce((t, r) => t + r[2], 0);
     body = `<div class="card"><h3>Resultado do haras no período</h3>${table([['Atividade', r => `<b>${r[0]}</b>`], ['Receitas', r => brl(r[1])], ['Custos', r => brl(r[2])], ['Resultado', r => res(r[1] - r[2])]], rows.concat([['TOTAL', R_, D_]]))}
     <p class="muted">Como os custos são calculados: despesas lançadas <b>com animal</b> e custos do prontuário sanitário são <b>custos diretos</b>. Despesas <b>sem animal</b> (ração, salários, energia, instalações...) são <b>rateadas</b> entre os animais presentes na data, conforme a opção escolhida no lançamento e o <b>peso no rateio</b> de cada animal (ex.: potro = 0,5). Atenção: se o custo de uma vacina já está no prontuário sanitário, não lance de novo no financeiro com o mesmo animal, para não contar em dobro.</p></div>`;
@@ -465,6 +466,152 @@ V.config = () => `<div class="card"><h3>Dados do haras</h3><div class="row"><inp
   <div class="card"><h3>Zona de risco</h3><div class="row"><button class="sec" onclick="if(confirm('Recarregar dados de demonstração? Os dados atuais serão perdidos.')){DB.reset();render()}">Restaurar dados de demonstração</button><button class="sec" style="color:var(--bad)" onclick="if(confirm('Apagar TODOS os dados?')){DB.clear();render()}">Começar do zero</button></div></div>`;
 window.importar = (f) => { const r = new FileReader(); r.onload = () => { try { DB.data = JSON.parse(r.result); DB.save(); alert('Backup importado!'); render(); } catch (e) { alert('Arquivo inválido.'); } }; r.readAsText(f); };
 
+// ---------- Compra e Venda com sociedade ----------
+// negocios: { tipo:'Compra'|'Venda', animalId, data, contraparte, valor (valor total da fração negociada), pctAnimal (% do animal negociado),
+//             participacoes:[{socioId,pct}] (somam 100% do negócio), parcelas, primeiroVenc, comissaoPct, intermediario, obs }
+const socio = (id) => DB.get('socios', id);
+const sname = (id) => socio(id)?.nome || '?';
+const socioProprio = () => DB.list('socios').find(s => s.proprio === 'Sim');
+const pct = (v) => (Math.round(Number(v) * 100) / 100).toLocaleString('pt-BR') + '%';
+
+// Composição societária atual de um animal (em % do animal), a partir do histórico de negócios
+function composicao(animalId, ate = '9999-12-31') {
+  const c = {};
+  DB.list('negocios').filter(n => n.animalId === animalId && n.data <= ate).sort((a, b) => a.data.localeCompare(b.data)).forEach(n => {
+    (n.participacoes || []).forEach(p => { const fr = Number(n.pctAnimal || 100) * Number(p.pct) / 100; c[p.socioId] = (c[p.socioId] || 0) + (n.tipo === 'Compra' ? fr : -fr); });
+  });
+  Object.keys(c).forEach(k => { if (Math.abs(c[k]) < 0.001) delete c[k]; });
+  return c;
+}
+const valorLiquido = (n) => Number(n.valor) * (1 - (Number(n.comissaoPct) || 0) / 100);
+
+function lancarFinanceiro(n) {
+  // remove lançamentos anteriores deste negócio e recria só a parte do haras (sócio "proprio")
+  DB.data.financeiro = DB.list('financeiro').filter(f => f.negocioId !== n.id);
+  const eu = socioProprio(); const p = (n.participacoes || []).find(x => x.socioId === eu?.id);
+  if (p && Number(p.pct)) {
+    const total = (n.tipo === 'Venda' ? valorLiquido(n) : Number(n.valor)) * Number(p.pct) / 100;
+    const np = Math.max(1, Number(n.parcelas) || 1);
+    for (let i = 0; i < np; i++) {
+      const venc = addMonths(n.primeiroVenc || n.data, i);
+      DB.data.financeiro.push({ id: uid(), negocioId: n.id, tipo: n.tipo === 'Venda' ? 'Receita' : 'Despesa', data: venc, descricao: `${n.tipo} ${aname(n.animalId)} (${pct(p.pct)} do negócio)` + (np > 1 ? ` – parcela ${i + 1}/${np}` : ''), valor: Math.round(total / np * 100) / 100, centro: n.tipo === 'Venda' ? 'Vendas' : 'Compra de animais', animalId: n.animalId, contraparte: n.contraparte, status: venc <= today() && n.quitado !== 'Não' ? 'Pago' : 'Pendente' });
+    }
+  }
+  if (!DB.data.centrosCusto.includes('Compra de animais')) DB.data.centrosCusto.push('Compra de animais');
+  DB.save();
+}
+function addMonths(d, m) { const x = new Date(d + 'T00:00'); x.setMonth(x.getMonth() + m); return x.toISOString().slice(0, 10); }
+
+window.editNegocio = (id, tipoPadrao) => {
+  const n = id ? JSON.parse(JSON.stringify(DB.get('negocios', id))) : { tipo: tipoPadrao || 'Compra', data: today(), pctAnimal: 100, parcelas: 1, comissaoPct: 0, quitado: 'Sim', participacoes: socioProprio() ? [{ socioId: socioProprio().id, pct: 100 }] : [] };
+  const m = document.createElement('div'); m.className = 'modal';
+  const socOpts = (sel) => DB.list('socios').map(s => `<option value="${s.id}" ${s.id === sel ? 'selected' : ''}>${esc(s.nome)}</option>`).join('');
+  const linhaSoc = (p = {}) => `<div class="row soc" style="margin-bottom:6px"><select style="flex:2">${socOpts(p.socioId)}</select><input type="number" step="any" placeholder="%" value="${p.pct ?? ''}" style="flex:1;max-width:110px"><span class="muted vl" style="min-width:120px"></span><button type="button" class="del" onclick="this.parentNode.remove();window._negCalc()">✕</button></div>`;
+  m.innerHTML = `<form class="box"><div class="top"><h3 style="margin:0">${id ? 'Editar' : 'Nova'} ${n.tipo === 'Venda' ? 'venda' : 'compra'}</h3><button type="button" class="sec" data-x>Fechar</button></div>
+    <div class="grid">
+      ${field({ k: 'tipo', l: 'Tipo', t: 'select', opts: ['Compra', 'Venda'], req: true }, n.tipo)}
+      <div><label>Animal *</label><select id="f_animalId"><option value="">— ${n.tipo === 'Compra' ? 'novo animal (preencha o nome ao lado)' : 'selecione'} —</option>${animalOpts().map(([v, l]) => `<option value="${v}" ${v === n.animalId ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select></div>
+      ${id ? '' : field({ k: 'novoNome', l: 'Nome do animal novo (se não cadastrado)' }, '')}
+      ${field({ k: 'data', l: 'Data do negócio', t: 'date', req: true }, n.data)}
+      ${field({ k: 'contraparte', l: n.tipo === 'Venda' ? 'Comprador' : 'Vendedor' }, n.contraparte)}
+      ${field({ k: 'pctAnimal', l: '% do animal negociado (100 = animal inteiro)', t: 'number', req: true }, n.pctAnimal)}
+      ${field({ k: 'valor', l: 'Valor total do negócio (R$)', t: 'number', req: true }, n.valor)}
+      ${field({ k: 'comissaoPct', l: 'Comissão / corretagem (%)', t: 'number' }, n.comissaoPct)}
+      ${field({ k: 'intermediario', l: 'Corretor / leilão' }, n.intermediario)}
+      ${field({ k: 'parcelas', l: 'Nº de parcelas', t: 'number' }, n.parcelas)}
+      ${field({ k: 'primeiroVenc', l: '1º vencimento', t: 'date' }, n.primeiroVenc || n.data)}
+      ${field({ k: 'quitado', l: 'Parcelas vencidas já pagas?', t: 'select', opts: ['Sim', 'Não'] }, n.quitado)}
+      <div class="full"><label>Sociedade: participação de cada sócio neste negócio (deve somar 100%)</label><div id="socs">${(n.participacoes.length ? n.participacoes : [{}]).map(linhaSoc).join('')}</div>
+        <div class="row"><button type="button" class="sec" id="addSoc">+ Sócio</button><button type="button" class="lnk" onclick="novoSocio(()=>{})">Cadastrar novo sócio</button><b id="somaPct"></b></div>
+        <p class="muted" id="sugestao"></p></div>
+      ${field({ k: 'obs', l: 'Observações', t: 'textarea', full: true }, n.obs)}
+    </div><div class="row" style="margin-top:16px;justify-content:flex-end"><button type="button" class="sec" data-x>Cancelar</button><button type="submit">Salvar</button></div></form>`;
+  document.body.appendChild(m);
+  m.querySelectorAll('[data-x]').forEach(b => b.onclick = () => m.remove());
+  $('#addSoc', m).onclick = () => { $('#socs', m).insertAdjacentHTML('beforeend', linhaSoc()); window._negCalc(); };
+  window._negCalc = () => {
+    const v = Number($('#f_valor', m).value) || 0, liq = v * (1 - (Number($('#f_comissaoPct', m).value) || 0) / 100); let s = 0;
+    m.querySelectorAll('.soc').forEach(r => { const p = Number(r.querySelector('input').value) || 0; s += p; r.querySelector('.vl').textContent = brl(liq * p / 100); });
+    $('#somaPct', m).innerHTML = ` Soma: <span style="color:${Math.abs(s - 100) < 0.01 ? 'var(--ok)' : 'var(--bad)'}">${pct(s)}</span>`;
+    const aid = $('#f_animalId', m).value, isVenda = $('#f_tipo', m).value === 'Venda';
+    const nn = $('#f_novoNome', m); if (nn) nn.parentNode.style.display = isVenda ? 'none' : '';
+    let html = '';
+    if (isVenda && aid) { const c = composicao(aid); html = 'Composição atual do animal: ' + (Object.entries(c).map(([k, v]) => `${esc(sname(k))} ${pct(v)}`).join(' · ') || 'sem sociedade registrada') + (Object.keys(c).length ? ` <button type="button" class="lnk" id="usarComp">usar esta divisão</button>` : ''); }
+    if ($('#sugestao', m).innerHTML !== html) $('#sugestao', m).innerHTML = html;
+  };
+  const usarComp = () => {
+    const c = composicao($('#f_animalId', m).value), tot = Object.values(c).reduce((a, b) => a + b, 0); if (!tot) return;
+    $('#socs', m).innerHTML = Object.entries(c).map(([k, v]) => linhaSoc({ socioId: k, pct: Math.round(v / tot * 10000) / 100 })).join('');
+    $('#f_pctAnimal', m).value = Math.round(tot * 100) / 100; window._negCalc();
+  };
+  m.addEventListener('click', e => { if (e.target.id === 'usarComp') usarComp(); });
+  // numa venda nova, ao escolher o animal já preenche a divisão pela composição atual
+  $('#f_animalId', m).addEventListener('change', () => { if (!id && $('#f_tipo', m).value === 'Venda') usarComp(); });
+  m.addEventListener('input', window._negCalc); m.addEventListener('change', window._negCalc); window._negCalc();
+  m.querySelector('form').onsubmit = (e) => {
+    e.preventDefault();
+    const g = (k) => $('#f_' + k, m)?.value ?? '';
+    const parts = [...m.querySelectorAll('.soc')].map(r => ({ socioId: r.querySelector('select').value, pct: Number(r.querySelector('input').value) || 0 })).filter(p => p.socioId && p.pct);
+    const soma = parts.reduce((a, p) => a + p.pct, 0);
+    if (Math.abs(soma - 100) > 0.01) return alert(`A participação dos sócios precisa somar 100% (está em ${pct(soma)}).`);
+    let animalId = g('animalId');
+    if (!animalId && g('novoNome') && g('tipo') === 'Compra') animalId = DB.upsert('animais', { nome: g('novoNome'), sexo: 'Macho', status: 'Ativo', posse: 'Próprio', pesoRateio: 1, dataEntrada: g('data'), aVenda: 'Não' }).id;
+    if (!animalId) return alert('Selecione o animal (ou informe o nome do animal novo, na compra).');
+    const o = { ...n, tipo: g('tipo'), animalId, data: g('data'), contraparte: g('contraparte'), pctAnimal: Number(g('pctAnimal')) || 100, valor: Number(g('valor')) || 0, comissaoPct: Number(g('comissaoPct')) || 0, intermediario: g('intermediario'), parcelas: Number(g('parcelas')) || 1, primeiroVenc: g('primeiroVenc') || g('data'), quitado: g('quitado'), participacoes: parts, obs: g('obs') };
+    DB.upsert('negocios', o); lancarFinanceiro(o);
+    // movimentação e situação do animal
+    const a = animal(animalId), restante = Object.values(composicao(animalId)).reduce((x, y) => x + y, 0);
+    if (o.tipo === 'Compra' && !DB.list('movimentacoes').some(x => x.negocioId === o.id)) DB.upsert('movimentacoes', { animalId, tipo: 'Entrada', data: o.data, motivo: 'Compra', origemDestino: o.contraparte, negocioId: o.id });
+    if (o.tipo === 'Venda' && restante <= 0.01) { DB.upsert('animais', { ...a, status: 'Vendido', aVenda: 'Não', dataSaida: o.data }); if (!DB.list('movimentacoes').some(x => x.negocioId === o.id)) DB.upsert('movimentacoes', { animalId, tipo: 'Saída', data: o.data, motivo: 'Venda', origemDestino: o.contraparte, negocioId: o.id }); }
+    m.remove(); render();
+  };
+};
+window.novoSocio = (cb, id) => openForm(id ? 'Editar sócio' : 'Novo sócio', [{ k: 'nome', l: 'Nome', req: true }, { k: 'telefone', l: 'Telefone' }, { k: 'documento', l: 'CPF / CNPJ' }, { k: 'proprio', l: 'É o próprio haras (nós)?', t: 'select', opts: ['Não', 'Sim'] }, { k: 'obs', l: 'Observações', t: 'textarea', full: true }],
+  id ? socio(id) : { proprio: 'Não' }, o => { if (o.proprio === 'Sim') DB.list('socios').forEach(s => { if (s.id !== o.id) s.proprio = 'Não'; }); DB.upsert('socios', o); DB.list('negocios').forEach(lancarFinanceiro); cb && cb(); });
+window.delNegocio = (id) => { if (!confirm('Excluir este negócio e seus lançamentos financeiros?')) return; DB.data.financeiro = DB.list('financeiro').filter(f => f.negocioId !== id); DB.data.movimentacoes = DB.list('movimentacoes').filter(f => f.negocioId !== id); DB.remove('negocios', id); render(); };
+
+V.negocios = () => {
+  const tab = state.ntab || 'negocios', eu = socioProprio();
+  const ns = DB.list('negocios').slice().sort((a, b) => b.data.localeCompare(a.data));
+  const minha = (n) => (n.participacoes || []).find(p => p.socioId === eu?.id)?.pct || 0;
+  const tabs = `<div class="tabs">${[['negocios', 'Compras e vendas'], ['animais', 'Resultado por animal'], ['socios', 'Sócios']].map(([k, l]) => `<button class="${tab === k ? 'on' : ''}" onclick="state.ntab='${k}';render()">${l}</button>`).join('')}</div>`;
+  const aviso = eu ? '' : `<div class="card"><span class="tag warn">Cadastre o próprio haras como sócio (marcando “É o próprio haras”) para o sistema calcular a sua parte e lançar no financeiro.</span> <button class="lnk" onclick="novoSocio(()=>{})">Cadastrar agora</button></div>`;
+  const ano = today().slice(0, 4), doAno = ns.filter(n => n.data.startsWith(ano));
+  const tot = (t) => doAno.filter(n => n.tipo === t).reduce((s, n) => s + (t === 'Venda' ? valorLiquido(n) : Number(n.valor)) * minha(n) / 100, 0);
+  let body = '';
+  if (tab === 'negocios') body = `<div class="kpis"><div class="kpi"><small>Compras em ${ano} (nossa parte)</small><b style="color:var(--bad)">${brl(tot('Compra'))}</b></div><div class="kpi"><small>Vendas em ${ano} (nossa parte, líquido)</small><b style="color:var(--ok)">${brl(tot('Venda'))}</b></div><div class="kpi"><small>Negócios em ${ano}</small><b>${doAno.length}</b></div></div>
+    <div class="card">${table([
+      ['Data', n => fdate(n.data)], ['Tipo', n => `<span class="tag ${n.tipo === 'Venda' ? 'ok' : 'warn'}">${n.tipo}</span>`], ['Animal', n => `<b>${esc(aname(n.animalId))}</b>` + (Number(n.pctAnimal) !== 100 ? `<br><small class="muted">${pct(n.pctAnimal)} do animal</small>` : '')],
+      ['Comprador / vendedor', n => esc(n.contraparte)], ['Valor total', n => brl(n.valor) + (n.parcelas > 1 ? `<br><small class="muted">${n.parcelas}x de ${brl(n.valor / n.parcelas)}</small>` : '') + (n.comissaoPct ? `<br><small class="muted">comissão ${pct(n.comissaoPct)}</small>` : '')],
+      ['Sociedade', n => (n.participacoes || []).map(p => `<span class="tag" title="${brl((n.tipo === 'Venda' ? valorLiquido(n) : n.valor) * p.pct / 100)}">${esc(sname(p.socioId))} ${pct(p.pct)}</span>`).join(' ')],
+      ['Nossa parte', n => `<b>${brl((n.tipo === 'Venda' ? valorLiquido(n) : Number(n.valor)) * minha(n) / 100)}</b>`],
+    ], ns, n => `<button class="lnk" onclick="editNegocio('${n.id}')">Editar</button><button class="del" onclick="delNegocio('${n.id}')">Excluir</button>`)}</div>`;
+  if (tab === 'animais') {
+    const ids = [...new Set(ns.map(n => n.animalId))];
+    const L = ids.map(id => { const a = animal(id) || { nome: '?' }; const N = ns.filter(n => n.animalId === id);
+      const inv = N.filter(n => n.tipo === 'Compra').reduce((s, n) => s + Number(n.valor) * minha(n) / 100, 0), ven = N.filter(n => n.tipo === 'Venda').reduce((s, n) => s + valorLiquido(n) * minha(n) / 100, 0);
+      const comp = composicao(id), nossa = eu ? (comp[eu.id] || 0) : 0;
+      const c = calcCustos(a.dataEntrada || a.nascimento || '2000-01-01', today())[id]; const manut = c ? c.diretos + c.rateio : 0;
+      return { a, id, inv, ven, comp, nossa, manut }; });
+    body = `<div class="card">${table([
+      ['Animal', x => `<b>${esc(x.a.nome)}</b><br><small class="muted">${esc(x.a.status || '')}</small>`],
+      ['Composição atual', x => Object.entries(x.comp).map(([k, v]) => `<span class="tag">${esc(sname(k))} ${pct(v)}</span>`).join(' ') || '<span class="muted">vendido</span>'],
+      ['Nossa % hoje', x => pct(x.nossa)], ['Investido (nossa parte)', x => brl(x.inv)], ['Recebido em vendas (nossa parte)', x => brl(x.ven)],
+      ['Custo de manutenção', x => brl(x.manut)], ['Resultado', x => { const r = x.ven - x.inv - x.manut; return `<b style="color:${r >= 0 ? 'var(--ok)' : 'var(--bad)'}">${brl(r)}</b>`; }],
+    ], L)}<p class="muted"><b>Resultado</b> = vendas − compras − custo de manutenção (custos diretos + rateio do módulo Custos), tudo pela nossa parte nos negócios. Enquanto o animal não for vendido, o resultado mostra quanto já foi investido nele.</p></div>`;
+  }
+  if (tab === 'socios') {
+    const S = DB.list('socios').map(s => { let inv = 0, rec = 0; ns.forEach(n => { const p = (n.participacoes || []).find(x => x.socioId === s.id); if (!p) return; if (n.tipo === 'Compra') inv += Number(n.valor) * p.pct / 100; else rec += valorLiquido(n) * p.pct / 100; });
+      const animais = DB.list('animais').map(a => [a, composicao(a.id)[s.id]]).filter(([, v]) => v > 0.001); return { s, inv, rec, animais }; });
+    body = `<div class="card">${table([
+      ['Sócio', x => `<b>${esc(x.s.nome)}</b>${x.s.proprio === 'Sim' ? ' <span class="tag ok">nós</span>' : ''}<br><small class="muted">${esc(x.s.telefone || '')}</small>`],
+      ['Animais em sociedade hoje', x => x.animais.map(([a, v]) => `<span class="tag">${esc(a.nome)} ${pct(v)}</span>`).join(' ') || '—'],
+      ['Total investido', x => brl(x.inv)], ['Total recebido', x => brl(x.rec)], ['Saldo', x => `<b style="color:${x.rec - x.inv >= 0 ? 'var(--ok)' : 'var(--bad)'}">${brl(x.rec - x.inv)}</b>`],
+    ], S, x => `<button class="lnk" onclick="novoSocio(null,'${x.s.id}')">Editar</button><button class="del" onclick="del('socios','${x.s.id}')">Excluir</button>`)}</div>`;
+  }
+  return aviso + tabs + body;
+};
+
 // ---------- Ações do topo por módulo ----------
 const ACOES = {
   animais: () => state.animalId ? '' : `<button onclick="editAnimal()">+ Novo animal</button>`,
@@ -472,6 +619,7 @@ const ACOES = {
   sanidade: () => `<button class="sec" onclick="aplicacaoLote()">Aplicação em lote</button><button onclick="openForm('Novo registro sanitário',F_SAN,{data:today()},o=>DB.upsert('sanidade',o))">+ Novo registro</button>`,
   financeiro: () => `<button onclick="openForm('Novo lançamento',F_FIN(),{data:today(),tipo:'Despesa',status:'Pago'},o=>DB.upsert('financeiro',o))">+ Novo lançamento</button>`,
   custos: () => `<button class="sec" onclick="cobrarExtra()">Cobrar serviço extra</button><button onclick="gerarCobrancas()">Gerar cobranças de pensão do mês</button>`,
+  negocios: () => state.ntab === 'socios' ? `<button onclick="novoSocio(()=>{})">+ Novo sócio</button>` : `<button class="sec" onclick="editNegocio(null,'Venda')">+ Venda</button><button onclick="editNegocio(null,'Compra')">+ Compra</button>`,
   estoque: () => `<button onclick="openForm('Novo item',F_EST,{},o=>DB.upsert('estoque',o))">+ Novo item</button>`,
   relatorios: () => `<button onclick="window.print()">Imprimir</button>`,
   usuarios: () => `<button onclick="openForm('Novo usuário',F_USU,{perfil:'Funcionário',ativo:'Sim'},o=>DB.upsert('usuarios',o))">+ Novo usuário</button>`,

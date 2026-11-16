@@ -11,6 +11,12 @@ Sistema web para gestão de criatórios de cavalos (qualquer raça). Roda 100% n
 - **Painel**: indicadores, agenda sanitária, previsão de partos, plantel por categoria, estoque baixo
 - **Animais**: ficha com foto, registro, microchip, genealogia de 3 gerações, biometria, entradas e saídas (GTA), prontuário, histórico reprodutivo e custos por animal
 - **Reprodução**: monta, IA (fresco/resfriado/congelado), TE, diagnóstico de gestação, previsão de parto (340 dias), registro de parto com cadastro automático do potro, taxa de prenhez
+- **Compra e Venda (com sociedade)**:
+  - Cada compra/venda registra o % do animal negociado (ex.: venda de uma cota de 20%) e a participação de cada sócio no negócio (soma 100%)
+  - Composição societária de cada animal calculada automaticamente pelo histórico; na venda, a divisão atual é sugerida
+  - Valor, parcelas, comissão/corretagem; a parte do haras vira lançamentos no financeiro (parcela a parcela)
+  - Compra de animal novo já cria o cadastro; venda de 100% marca o animal como vendido e registra a saída
+  - Abas: negócios, resultado por animal (investido × recebido × custo de manutenção) e sócios (investido, recebido, saldo, animais em sociedade)
 - **Sanidade**: vacinas, vermifugação, exames, tratamentos, alertas de vencimento, aplicação em lote
 - **Financeiro**: receitas e despesas, centros de custo, contas pendentes, demonstrativo por centro de custo
 - **Custos e Pensão**:
@@ -32,3 +38,6 @@ python3 -m http.server 8080
 # abra http://localhost:8080
 ```
 Também pode ser publicado como site estático (GitHub Pages, Netlify, Vercel).
+
+## Sincronização (planejada)
+Todo registro tem `id` e `atualizadoEm`, para sincronizar com o site de controle de criação já existente: reprodução e compra/venda atualizadas pelo app e enviadas ao site; os demais dados continuam sendo editados no site.
