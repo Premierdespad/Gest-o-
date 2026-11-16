@@ -56,3 +56,12 @@ python3 server/crina_server.py --db /caminho/do/haras.db --porta 8090 --senha "s
 - Vários aparelhos usam os mesmos dados; se dois salvarem ao mesmo tempo, o segundo é avisado e a página recarrega.
 - Reprodução e compra/venda vindas do app devem ser editadas **no app** (uma nova leitura sobrescreve os campos que vêm de lá). Sociedade, comissão e datas corrigidas de compras sem data são preservadas.
 - Sem o servidor (aberto como arquivo ou hospedagem estática), o sistema funciona em modo local, só no navegador.
+
+### Rodando em outro servidor, lendo o app pela API
+Se não houver acesso ao servidor do app, o Crina lê o app pela internet (rotas `/api/login`, `/api/tudo` e `/api/backup` do app):
+
+```bash
+CRINA_APP_SENHA="senha-do-app" python3 server/crina_server.py --app-url https://endereco-do-app \
+    --db crina.db --porta 8090 --senha "senha-do-crina"
+```
+Os dados do app são lidos ao vivo (cache de 15 s) e uma cópia do backup do app é baixada todo dia para `backups/` (últimos 60 dias).
