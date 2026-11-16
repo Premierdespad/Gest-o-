@@ -4,10 +4,13 @@
 
 function carregarSqlJs() {
   if (window._sqlPromise) return window._sqlPromise;
-  window._sqlPromise = new Promise((ok, err) => {
-    const s = document.createElement('script'); s.src = 'vendor/sql-wasm.js';
-    s.onload = () => initSqlJs({ locateFile: f => 'vendor/' + f }).then(ok, err); s.onerror = err; document.head.appendChild(s);
+  const CDN = 'https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.10.3/';
+  const tentar = (base) => new Promise((ok, err) => {
+    const s = document.createElement('script'); s.src = base + 'sql-wasm.js';
+    s.onload = () => initSqlJs({ locateFile: f => base + f }).then(ok, err); s.onerror = err; document.head.appendChild(s);
   });
+  // cópia local (funciona offline); se não existir, usa a CDN
+  window._sqlPromise = tentar('vendor/').catch(() => tentar(CDN));
   return window._sqlPromise;
 }
 
