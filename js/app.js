@@ -508,12 +508,12 @@ function lancarFinanceiro(n) {
     const fator = Number(p.pct) / 100 * (n.tipo === 'Venda' ? 1 - (Number(n.comissaoPct) || 0) / 100 : 1);
     if (n.parcelasLista && n.parcelasLista.length) {
       const np = n.parcelasLista.length;
-      n.parcelasLista.forEach((q, i) => DB.data.financeiro.push({ id: uid(), negocioId: n.id, parcelaIdx: i, tipo: n.tipo === 'Venda' ? 'Receita' : 'Despesa', data: q.vencimento, descricao: `${n.tipo} ${negLabel(n)}` + (Number(p.pct) !== 100 ? ` (${pct(p.pct)} do negócio)` : '') + (np > 1 ? ` – parcela ${q.numero || i + 1}/${np}` : ''), valor: Math.round(Number(q.valor) * fator * 100) / 100, centro: n.tipo === 'Venda' ? 'Vendas' : 'Compra de animais', animalId: n.animalId || n.doadoraId, contraparte: n.contraparte, forma: q.forma, status: q.pagoEm ? 'Pago' : 'Pendente', pagoEm: q.pagoEm || '' }));
+      n.parcelasLista.forEach((q, i) => DB.data.financeiro.push({ id: n.id + '-p' + i, negocioId: n.id, parcelaIdx: i, tipo: n.tipo === 'Venda' ? 'Receita' : 'Despesa', data: q.vencimento, descricao: `${n.tipo} ${negLabel(n)}` + (Number(p.pct) !== 100 ? ` (${pct(p.pct)} do negócio)` : '') + (np > 1 ? ` – parcela ${q.numero || i + 1}/${np}` : ''), valor: Math.round(Number(q.valor) * fator * 100) / 100, centro: n.tipo === 'Venda' ? 'Vendas' : 'Compra de animais', animalId: n.animalId || n.doadoraId, contraparte: n.contraparte, forma: q.forma, status: q.pagoEm ? 'Pago' : 'Pendente', pagoEm: q.pagoEm || '' }));
     } else {
     const np = Math.max(1, Number(n.parcelas) || 1);
     for (let i = 0; i < np; i++) {
       const venc = addMonths(n.primeiroVenc || n.data, i);
-      DB.data.financeiro.push({ id: uid(), negocioId: n.id, tipo: n.tipo === 'Venda' ? 'Receita' : 'Despesa', data: venc, descricao: `${n.tipo} ${negLabel(n)} (${pct(p.pct)} do negócio)` + (np > 1 ? ` – parcela ${i + 1}/${np}` : ''), valor: Math.round(total / np * 100) / 100, centro: n.tipo === 'Venda' ? 'Vendas' : 'Compra de animais', animalId: n.animalId, contraparte: n.contraparte, status: venc <= today() && n.quitado !== 'Não' ? 'Pago' : 'Pendente' });
+      DB.data.financeiro.push({ id: n.id + '-p' + i, negocioId: n.id, tipo: n.tipo === 'Venda' ? 'Receita' : 'Despesa', data: venc, descricao: `${n.tipo} ${negLabel(n)} (${pct(p.pct)} do negócio)` + (np > 1 ? ` – parcela ${i + 1}/${np}` : ''), valor: Math.round(total / np * 100) / 100, centro: n.tipo === 'Venda' ? 'Vendas' : 'Compra de animais', animalId: n.animalId, contraparte: n.contraparte, status: venc <= today() && n.quitado !== 'Não' ? 'Pago' : 'Pendente' });
     }
     }
   }

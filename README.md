@@ -43,5 +43,16 @@ Também pode ser publicado como site estático (GitHub Pages, Netlify, Vercel).
 Em **Configurações → Importar do sistema anterior**, envie o backup `.db` (SQLite) do app de controle de criação. São importados cavalos (com pais/garanhões externos para a genealogia), coberturas, sanidade, compras/vendas (animais e embriões) com todas as parcelas e pagamentos, e despesas.
 A importação pode ser repetida: registros já importados são atualizados (ids `imp-*`), sem duplicar, e o que só existe neste sistema (sociedade, comissão, posse, pensão, rateio) é preservado. O arquivo é lido no próprio navegador (sql.js em `vendor/`), sem enviar dados a servidores.
 
-## Sincronização (planejada)
-Todo registro tem `id` e `atualizadoEm`, para sincronizar com o site de controle de criação já existente: reprodução e compra/venda atualizadas pelo app e enviadas ao site; os demais dados continuam sendo editados no site.
+## Rodando no servidor junto com o app (integração ao vivo)
+O `server/crina_server.py` (só Python padrão, sem instalar nada) usa **o mesmo arquivo .db do app**:
+
+```bash
+python3 server/crina_server.py --db /caminho/do/haras.db --porta 8090 --senha "sua-senha"
+# abra http://IP-DO-SERVIDOR:8090/app.html   (site público: /vitrine.html)
+```
+
+- Tabelas do app (`cavalos`, `coberturas`, `sanidade`, `transacoes`, `parcelas`, `despesas`) são **somente leitura**: o que é lançado no app aparece no sistema a cada carregamento de página.
+- Os dados próprios do sistema (custos, pensão, sócios, estoque, site...) ficam na tabela nova `crina_estado` do mesmo arquivo.
+- Vários aparelhos usam os mesmos dados; se dois salvarem ao mesmo tempo, o segundo é avisado e a página recarrega.
+- Reprodução e compra/venda vindas do app devem ser editadas **no app** (uma nova leitura sobrescreve os campos que vêm de lá). Sociedade, comissão e datas corrigidas de compras sem data são preservadas.
+- Sem o servidor (aberto como arquivo ou hospedagem estática), o sistema funciona em modo local, só no navegador.
