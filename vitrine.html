@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Haras</title>
 <style>body{margin:0;font-family:Georgia,serif;color:#2b2420;background:#faf7f2}.hero{min-height:360px;display:flex;flex-direction:column;justify-content:center;align-items:center;text-align:center;color:#fff;padding:40px 16px;background-size:cover;background-position:center}
-.hero h1{font-size:44px;margin:0}.wrap{max-width:1080px;margin:auto;padding:40px 16px}.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:20px}
+.hero h1{font-size:44px;margin:0}.wrap{max-width:1080px;margin:auto;padding:40px 16px}.cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:20px}
 .c{background:#fff;border-radius:14px;overflow:hidden;box-shadow:0 2px 10px rgba(0,0,0,.06)}.c img,.c .ph{width:100%;height:220px;object-fit:cover;background:#e9e1d6;display:block}.c div{padding:14px;font-family:system-ui}.p{font-size:20px;font-weight:700}
 footer{color:#fff;padding:30px 16px;text-align:center;font-family:system-ui}a.b{display:inline-block;margin-top:8px;padding:8px 14px;border-radius:8px;color:#fff;text-decoration:none}</style></head>
 <body><div id="r"></div>
@@ -9,11 +9,11 @@ footer{color:#fff;padding:30px 16px;text-align:center;font-family:system-ui}a.b{
 (async()=>{let s,lista,n;
 try{const r=await fetch('api/vitrine',{cache:'no-store'});if(!r.ok)throw 0;const j=await r.json();s=j.site||{};lista=j.animais;n=null;}
 catch(e){DB.load();s=DB.data.site;lista=DB.list('animais').filter(a=>a.aVenda==='Sim').map(a=>({...a,pai:DB.get('animais',a.paiId)?.nome,mae:DB.get('animais',a.maeId)?.nome}));}
-const c=s.cor||'#7a4b2a',e=v=>String(v??'').replace(/[&<>"]/g,x=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[x]));
+const c=(s.cor&&s.cor!=='#7a4b2a')?s.cor:'#8f6420',e=v=>String(v??'').replace(/[&<>"]/g,x=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[x]));
 const brl=v=>(Number(v)||0).toLocaleString('pt-BR',{style:'currency',currency:'BRL'});
 const wa=(s.telefone||'').replace(/\D/g,'');document.title=s.titulo;
-document.getElementById('r').innerHTML=`<section class="hero" style="background:linear-gradient(rgba(0,0,0,.45),rgba(0,0,0,.45)),${s.banner?`url(${s.banner})`:c}"><h1>${e(s.titulo)}</h1><p style="font-size:20px">${e(s.slogan)}</p></section>
-<div class="wrap"><h2>Sobre nós</h2><p style="font-size:18px;line-height:1.6">${e(s.sobre)}</p>
+document.getElementById('r').innerHTML=`<section class="hero" style="background:linear-gradient(rgba(0,0,0,.45),rgba(0,0,0,.45)),${s.banner?`url(${s.banner})`:'radial-gradient(circle at 50% 40%,#3a2c24,#0b0706 75%)'}"><img src="assets/logo.jpg" alt="" style="width:220px;max-width:60vw;border-radius:14px;margin-bottom:14px"><h1>${e(s.titulo)}</h1><p style="font-size:20px">${e(s.slogan)}</p></section>
+<div class="wrap">${s.sobre?`<h2>Sobre nós</h2><p style="font-size:18px;line-height:1.6">${e(s.sobre)}</p>`:''}
 <h2>Animais à venda</h2><div class="cards">${lista.map(a=>`<div class="c">${a.foto?`<img src="${a.foto}">`:'<span class="ph"></span>'}<div><h3 style="margin:0 0 4px">${e(a.nome)}</h3><small>${e(a.sexo)} · ${e(a.raca)} · ${e(a.pelagem)}</small><p><small>${e(a.pai||'')}${a.mae?' × '+e(a.mae):''}</small></p><p>${e(a.descricaoVenda||'')}</p><div class="p" style="padding:0;color:${c}">${a.preco?brl(a.preco):'Consulte'}</div>
 ${wa?`<a class="b" style="background:${c}" target="_blank" href="https://wa.me/55${wa}?text=${encodeURIComponent('Olá! Tenho interesse no animal '+a.nome)}">Tenho interesse</a>`:''}</div></div>`).join('')||'<p>Nenhum animal disponível no momento.</p>'}</div></div>
 <footer style="background:${c}"><b>${e(s.titulo)}</b><br>${e(s.endereco)}<br>${e(s.telefone)} · ${e(s.email)} · ${e(s.instagram)}</footer>`;

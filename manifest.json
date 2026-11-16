@@ -1,1 +1,1 @@
-{"name":"Crina – Gestão de Haras","short_name":"Crina","start_url":"app.html","display":"standalone","background_color":"#f6f3ee","theme_color":"#2b2420","icons":[{"src":"icon.svg","sizes":"any","type":"image/svg+xml"}]}
+{"name":"Haras Castro Neves","short_name":"Castro Neves","start_url":"index.html","display":"standalone","background_color":"#120c0a","theme_color":"#120c0a","icons":[{"src":"assets/icon-192.png","sizes":"192x192","type":"image/png"},{"src":"assets/icon-512.png","sizes":"512x512","type":"image/png"}]}

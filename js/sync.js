@@ -67,8 +67,8 @@ function atualizarIndicador(txt) {
 
 function pedirLogin() {
   SYNC.modo = 'login';
-  const m = document.createElement('div'); m.className = 'modal'; m.style.alignItems = 'center';
-  m.innerHTML = `<form class="box" style="max-width:360px"><h3>🐴 Entrar</h3><label>Senha</label><input type="password" id="lgSenha" autofocus><p id="lgErro" style="color:var(--bad)"></p><button style="width:100%">Entrar</button></form>`;
+  const m = document.createElement('div'); m.className = 'login';
+  m.innerHTML = `<form><img src="assets/logo.jpg" alt="Haras Castro Neves"><input type="password" id="lgSenha" placeholder="Senha de acesso" autocomplete="current-password" autofocus><p id="lgErro" style="color:#ff8a80;min-height:1em"></p><button>Entrar</button></form>`;
   document.body.appendChild(m);
   m.querySelector('form').onsubmit = async (ev) => {
     ev.preventDefault();
