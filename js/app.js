@@ -232,7 +232,7 @@ V.animal = () => {
   const san = DB.list('sanidade').filter(b => b.animalId === a.id).sort((x, y) => y.data.localeCompare(x.data));
   const rep = DB.list('reproducao').filter(r => r.eguaId === a.id || r.garanhaoId === a.id || r.receptoraId === a.id);
   const fin = DB.list('financeiro').filter(f => f.animalId === a.id);
-  const tabs = [['dados', 'Dados'], ['genealogia', 'Genealogia'], ['biometria', 'Biometria'], ['movimentacoes', 'Entradas e saídas'], ['sanidade', 'Prontuário'], ['reproducao', 'Reprodução'], ['financeiro', 'Custos e resultado']];
+  const tabs = [['dados', 'Dados'], ['genealogia', 'Genealogia'], ['biometria', 'Biometria'], ['movimentacoes', 'Entradas e saídas'], ['sanidade', 'Prontuário'], ['reproducao', 'Reprodução'], ['financeiro', 'Custos e resultado'], ['anexos', `📎 Anexos (${DB.list('anexos').filter(x => x.animalId === a.id).length})`]];
   let body = '';
   if (state.tab === 'dados') body = `<div class="row" style="align-items:flex-start;gap:20px">${a.foto ? `<img src="${a.foto}" class="photo">` : '<div class="photo"></div>'}
     <div class="grid" style="flex:1">${[['Registro', a.registro], ['Microchip', a.chip], ['Sexo', a.sexo], ['Raça', a.raca], ['Pelagem', a.pelagem], ['Nascimento', fdate(a.nascimento) + (a.nascimento ? ` (${idade(a.nascimento)})` : '')], ['Categoria', a.categoria], ['Situação', a.status], ['Local', a.local], ['Pai', aname(a.paiId)], ['Mãe', aname(a.maeId)], ['Proprietário', a.proprietario], ['Criador', a.criador], ['Origem', a.origem], ['Valor estimado', a.valorEstimado ? brl(a.valorEstimado) : ''], ['À venda', a.aVenda === 'Sim' ? 'Sim – ' + brl(a.preco) : 'Não']].map(([k, v]) => `<div><label>${k}</label>${esc(v) || '—'}</div>`).join('')}
@@ -243,6 +243,7 @@ V.animal = () => {
     ${a.obs ? `<div class="full"><label>Observações</label>${esc(a.obs)}</div>` : ''}</div></div>
     <h4>Filhos (${filhos.length})</h4>${filhos.map(f => `<a href="#" onclick="state.animalId='${f.id}';render();return false">${esc(f.nome)}</a>`).join(' · ') || '<span class="muted">Nenhum</span>'}`;
   if (state.tab === 'genealogia') body = genealogia(a);
+  if (state.tab === 'anexos') body = typeof abaAnexos === 'function' ? abaAnexos(a) : '';
   if (state.tab === 'biometria') body = `<button onclick="openForm('Nova medição',F_BIO,{animalId:'${a.id}',data:today()},o=>DB.upsert('biometria',o))">+ Medição</button><br><br>` +
     table([['Data', b => fdate(b.data)], ['Peso (kg)', b => b.peso], ['Altura (m)', b => b.altura], ['Torácico (m)', b => b.toracico], ['Canela (m)', b => b.canela], ['Escore', b => b.escore ?? '']], bio, b => `<button class="del" onclick="del('biometria','${b.id}')">Excluir</button>`);
   if (state.tab === 'movimentacoes') body = `<button onclick="openForm('Nova movimentação',F_MOV,{animalId:'${a.id}',data:today()},o=>DB.upsert('movimentacoes',o))">+ Movimentação</button><br><br>` +
@@ -561,12 +562,12 @@ V.usuarios = () => `<div class="card"><p class="muted">Cada perfil tem acesso a 
 
 V.config = () => `<div class="card"><h3>Dados do haras</h3><div class="row"><input id="cfgHaras" value="${esc(DB.data.config.haras)}" style="max-width:320px"><button onclick="DB.data.config.haras=$('#cfgHaras').value;DB.save();render()">Salvar</button></div></div>
   <div class="card"><h3>Backup e sincronização</h3><p class="muted">Os dados ficam salvos neste navegador. Exporte um backup para guardar ou levar para outro dispositivo.</p>
-  <div class="row"><button onclick="download('backup-haras-${today()}.json',JSON.stringify(DB.data),'application/json')">Exportar backup</button>
+  <div class="row"><button onclick="exportarBackup()">Exportar backup (com anexos)</button>
   <label class="btn sec" style="margin:0;color:var(--ink);font-size:14px">Importar backup<input type="file" accept=".json" hidden onchange="importar(this.files[0])"></label></div></div>
   <div class="card"><h3>Importar do sistema anterior (arquivo .db)</h3><p class="muted">Envie o backup do app de controle de criação (arquivo <b>.db</b>). Animais, coberturas, sanidade, compras/vendas e parcelas são trazidos. Pode importar de novo sempre que quiser: os registros já importados são <b>atualizados</b>, sem duplicar.</p>
   <label class="btn" style="margin:0;color:#fff;font-size:14px">Escolher arquivo .db<input type="file" accept=".db,.sqlite,.sqlite3" hidden onchange="importarDb(this.files[0])"></label> <span id="impStatus" class="muted"></span></div>
   <div class="card"><h3>Zona de risco</h3><div class="row"><button class="sec" onclick="if(confirm('Recarregar dados de demonstração? Os dados atuais serão perdidos.')){DB.reset();render()}">Restaurar dados de demonstração</button><button class="sec" style="color:var(--bad)" onclick="if(confirm('Apagar TODOS os dados?')){DB.clear();render()}">Começar do zero</button></div></div>`;
-window.importar = (f) => { const r = new FileReader(); r.onload = () => { try { DB.data = JSON.parse(r.result); DB.save(); alert('Backup importado!'); render(); } catch (e) { alert('Arquivo inválido.'); } }; r.readAsText(f); };
+window.importar = (f) => { const r = new FileReader(); r.onload = async () => { let d; try { d = JSON.parse(r.result); } catch (e) { return alert('Arquivo inválido.'); } const n = await restaurarArquivos(d); DB.data = d; DB.data.anexos = DB.data.anexos || []; DB.save(); alert('Backup importado!' + (n ? ` ${n} anexo(s) restaurado(s).` : '')); render(); }; r.readAsText(f); };
 
 // ---------- Compra e Venda com sociedade ----------
 // negocios: { tipo:'Compra'|'Venda', animalId, data, contraparte, valor (valor total da fração negociada), pctAnimal (% do animal negociado),
@@ -738,6 +739,8 @@ function agendaParcelas() {
     ['', f => f.tipo === 'Receita' ? '<span class="tag ok">Receber</span>' : '<span class="tag bad">Pagar</span>'],
     ['Animal / negócio', f => `<b>${esc(negLabel(neg(f)))}</b><br><small class="muted">${esc(neg(f).tipo || '')}${neg(f).contraparte ? ' · ' + esc(neg(f).contraparte) : ''}</small>`],
     ['Parcela', f => parc(f)], ['Forma', f => esc(f.forma || '')],
+    ['📎', f => { const n = neg(f), ax = window.anexosDaParcela ? anexosDaParcela(f.negocioId, (f.parcelaIdx ?? 0) + 1) : []; const aid = n.animalId || n.doadoraId;
+      return ax.length ? ax.map(x => `<a href="#" title="${esc(x.tipo + ': ' + x.nome)}" onclick="verAnexo('${x.id}');return false">📄</a>`).join(' ') : aid ? `<a href="#" class="muted" title="Anexar boleto desta parcela" onclick="novoAnexo('${aid}',{negocioId:'${f.negocioId}',parcela:${(f.parcelaIdx ?? 0) + 1}});return false">+</a>` : ''; }],
     ['Valor', f => `<b style="color:${f.tipo === 'Receita' ? 'var(--ok)' : 'var(--bad)'}">${brl(f.valor)}</b>`],
     ['Situação', f => f.status === 'Pago' ? `<span class="tag ok">Paga${f.pagoEm ? ' em ' + fdate(f.pagoEm) : ''}</span>` : '<span class="tag warn">Em aberto</span>'],
   ], L.filter(f => f.data.startsWith(x.m)), f => f.status === 'Pago' ? `<button class="lnk" onclick="reabrirParcela('${f.id}')">Desfazer</button>` : `<button class="lnk" onclick="baixar('${f.id}')">✓ Marcar paga</button>`)}</div>`).join('') || '<div class="card"><p class="muted">Nenhuma parcela com esses filtros.</p></div>'}

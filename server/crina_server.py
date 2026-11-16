@@ -19,7 +19,7 @@ Uso (em OUTRO servidor, lendo o app pela API dele na internet):
 Só usa a biblioteca padrão do Python (3.8+). Pode rodar ao lado do servidor do app,
 ou as funções `estado()` / `salvar()` podem ser montadas dentro do servidor existente.
 """
-import argparse, glob, hashlib, hmac, http.cookiejar, json, os, secrets, sqlite3, threading, time, urllib.error, urllib.request
+import argparse, glob, re, hashlib, hmac, http.cookiejar, json, os, secrets, sqlite3, threading, time, urllib.error, urllib.request
 from http.server import ThreadingHTTPServer, SimpleHTTPRequestHandler
 
 RAIZ = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -95,6 +95,21 @@ def rotina_backup(app, pasta):
         time.sleep(24 * 3600)
 
 
+# ---------- arquivos anexados (boletos, contratos...) ----------
+ID_ARQ = re.compile(r"^[A-Za-z0-9_-]{1,80}$")
+MAX_ARQ = 25 * 1024 * 1024
+
+
+def pasta_anexos():
+    p = os.path.splitext(os.path.abspath(CFG["db"]))[0] + "-anexos"
+    os.makedirs(p, exist_ok=True)
+    return p
+
+
+def caminho_arq(i):
+    return os.path.join(pasta_anexos(), i) if ID_ARQ.match(i or "") else None
+
+
 def estado():
     """Dados do site + tabelas do app (somente leitura)."""
     with conectar() as c:
@@ -156,6 +171,21 @@ class Handler(SimpleHTTPRequestHandler):
         return bool(exp and exp > time.time())
 
     def do_GET(self):
+        if self.path.startswith("/api/arquivo/"):
+            if not self._autorizado():
+                return self._json(401, {"erro": "login necessário"})
+            c = caminho_arq(self.path.split("/api/arquivo/", 1)[1])
+            if not c or not os.path.exists(c):
+                return self._json(404, {"erro": "arquivo não encontrado"})
+            tipo = open(c + ".tipo").read().strip() if os.path.exists(c + ".tipo") else "application/octet-stream"
+            dados = open(c, "rb").read()
+            self.send_response(200)
+            self.send_header("Content-Type", tipo)
+            self.send_header("Content-Length", str(len(dados)))
+            self.send_header("Cache-Control", "private, max-age=86400")
+            self.end_headers()
+            self.wfile.write(dados)
+            return
         if self.path == "/api/estado":
             if not self._autorizado():
                 return self._json(401, {"erro": "login necessário"})
@@ -169,7 +199,7 @@ class Handler(SimpleHTTPRequestHandler):
             nomes = {a["id"]: a.get("nome") for a in e.get("animais", [])}
             campos = ["id", "nome", "sexo", "raca", "pelagem", "nascimento", "foto", "preco", "descricaoVenda"]
             return self._json(200, {"site": e.get("site", {}), "animais": [dict({k: a.get(k) for k in campos}, pai=nomes.get(a.get("paiId")), mae=nomes.get(a.get("maeId"))) for a in venda]})
-        if self.path.startswith(("/server/", "/.", "/backups")) or "/." in self.path or self.path.split("?")[0].endswith((".db", ".py")):
+        if self.path.startswith(("/server/", "/.", "/backups")) or "/." in self.path or "-anexos" in self.path or self.path.split("?")[0].endswith((".db", ".py")):
             return self._json(404, {"erro": "não encontrado"})
         return super().do_GET()
 
@@ -187,7 +217,31 @@ class Handler(SimpleHTTPRequestHandler):
         except Exception as e:  # noqa
             return self._json(400, {"erro": str(e)})
 
+    def do_DELETE(self):
+        if not self.path.startswith("/api/arquivo/"):
+            return self._json(404, {"erro": "não encontrado"})
+        if not self._autorizado():
+            return self._json(401, {"erro": "login necessário"})
+        c = caminho_arq(self.path.split("/api/arquivo/", 1)[1])
+        for x in ([c, c + ".tipo"] if c else []):
+            if os.path.exists(x):
+                os.remove(x)
+        return self._json(200, {"ok": True})
+
     def do_PUT(self):
+        if self.path.startswith("/api/arquivo/"):
+            if not self._autorizado():
+                return self._json(401, {"erro": "login necessário"})
+            c = caminho_arq(self.path.split("/api/arquivo/", 1)[1])
+            n = int(self.headers.get("Content-Length") or 0)
+            if not c or n <= 0 or n > MAX_ARQ:
+                return self._json(400, {"erro": "arquivo inválido ou maior que 25 MB"})
+            with open(c + ".tmp", "wb") as f:
+                f.write(self.rfile.read(n))
+            os.replace(c + ".tmp", c)
+            with open(c + ".tipo", "w") as f:
+                f.write((self.headers.get("Content-Type") or "application/octet-stream")[:100])
+            return self._json(200, {"ok": True})
         if self.path != "/api/crina":
             return self._json(404, {"erro": "não encontrado"})
         if not self._autorizado():
