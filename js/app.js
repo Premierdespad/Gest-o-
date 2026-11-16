@@ -198,9 +198,11 @@ V.dashboard = () => {
 
 V.animais = () => {
   if (state.animalId) return V.animal();
-  const q = state.filtro.toLowerCase();
-  const rows = DB.list('animais').filter(a => !q || [a.nome, a.registro, a.raca, a.categoria, a.status, a.local].join(' ').toLowerCase().includes(q)).sort((a, b) => a.nome.localeCompare(b.nome));
-  return `<div class="card"><div class="row" style="margin-bottom:12px"><input placeholder="Buscar por nome, registro, raça, categoria, situação..." value="${esc(state.filtro)}" oninput="state.filtro=this.value;render();this.focus();this.setSelectionRange(this.value.length,this.value.length)" style="max-width:420px"></div>
+  const q = state.filtro.toLowerCase(), fs = state.fAnimais || 'ativos';
+  const FILTROS = { ativos: ['Ativos (plantel)', a => a.status !== 'Externo' && !['Vendido', 'Morto'].includes(a.status)], haras: ['Todos do haras (inclui vendidos)', a => a.status !== 'Externo'], proprios: ['Só meus (sem pensão)', a => a.status === 'Ativo' && a.posse !== 'Pensão'], pensao: ['Só pensão', a => a.status === 'Ativo' && a.posse === 'Pensão'], vendidos: ['Vendidos', a => a.status === 'Vendido'], mortos: ['Mortos', a => a.status === 'Morto'], externos: ['Pais e garanhões de fora (só genealogia)', a => a.status === 'Externo'] };
+  const rows = DB.list('animais').filter(FILTROS[fs][1]).filter(a => !q || [a.nome, a.registro, a.raca, a.categoria, a.status, a.local].join(' ').toLowerCase().includes(q)).sort((a, b) => a.nome.localeCompare(b.nome));
+  return `<div class="card"><div class="row" style="margin-bottom:12px"><input placeholder="Buscar por nome, registro, raça, categoria..." value="${esc(state.filtro)}" oninput="state.filtro=this.value;render();this.focus();this.setSelectionRange(this.value.length,this.value.length)" style="max-width:380px">
+    <select onchange="state.fAnimais=this.value;render()" style="max-width:280px">${Object.entries(FILTROS).map(([k, [l]]) => `<option value="${k}" ${k === fs ? 'selected' : ''}>${l}</option>`).join('')}</select><span class="muted">${rows.length} animal(is)</span></div>
   ${table([
     ['', a => a.foto ? `<img src="${a.foto}" class="thumb">` : '<span class="thumb"></span>'],
     ['Nome', a => `<a href="#" onclick="state.animalId='${a.id}';state.tab='dados';render();return false"><b>${esc(a.nome)}</b></a><br><small class="muted">${esc(a.registro || '')}</small>`],
@@ -699,22 +701,70 @@ window.novoSocio = (cb, id) => openForm(id ? 'Editar sócio' : 'Novo sócio', [{
   id ? socio(id) : { proprio: 'Não' }, o => { if (o.proprio === 'Sim') DB.list('socios').forEach(s => { if (s.id !== o.id) s.proprio = 'Não'; }); DB.upsert('socios', o); DB.list('negocios').forEach(lancarFinanceiro); cb && cb(); });
 window.delNegocio = (id) => { if (!confirm('Excluir este negócio e seus lançamentos financeiros?')) return; DB.data.financeiro = DB.list('financeiro').filter(f => f.negocioId !== id); DB.data.movimentacoes = DB.list('movimentacoes').filter(f => f.negocioId !== id); DB.remove('negocios', id); render(); };
 
+// ---------- Agenda de parcelas (fluxo de caixa de compra e venda, pela nossa parte) ----------
+function agendaParcelas() {
+  const tipo = state.agTipo || 'todos', sit = state.agSit || 'aberto', per = state.agPer || '6';
+  const hoje = today(), negSel = state.agNeg && DB.get('negocios', state.agNeg);
+  const fimPer = per === 'tudo' ? '9999-12-31' : addMonths(hoje.slice(0, 7) + '-01', Number(per)).slice(0, 10);
+  let L = DB.list('financeiro').filter(f => f.negocioId && DB.get('negocios', f.negocioId));
+  if (negSel) L = L.filter(f => f.negocioId === negSel.id);
+  L = L.filter(f => tipo === 'todos' || (tipo === 'pagar' ? f.tipo === 'Despesa' : f.tipo === 'Receita'))
+    .filter(f => sit === 'todas' || (sit === 'aberto' ? f.status !== 'Pago' : sit === 'atrasadas' ? f.status !== 'Pago' && f.data < hoje : f.status === 'Pago'))
+    .filter(f => negSel || sit === 'pagas' || sit === 'atrasadas' || f.data < fimPer)
+    .sort((a, b) => a.data.localeCompare(b.data));
+  const neg = f => DB.get('negocios', f.negocioId) || {};
+  const parc = f => { const n = neg(f), tot = (n.parcelasLista || []).length; return tot > 1 ? `${(f.parcelaIdx ?? 0) + 1}/${tot}` : 'única'; };
+  const meses = {}; L.forEach(f => { const m = f.data.slice(0, 7); meses[m] = meses[m] || { r: 0, p: 0, n: 0 }; meses[m][f.tipo === 'Receita' ? 'r' : 'p'] += Number(f.valor); meses[m].n++; });
+  let acum = 0; const resumo = Object.entries(meses).sort().map(([m, v]) => { acum += v.r - v.p; return { m, ...v, acum }; });
+  const nomeMes = m => new Date(m + '-15T12:00').toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' }).replace(/^./, c => c.toUpperCase());
+  const soma = t => L.filter(f => f.tipo === t).reduce((a, f) => a + Number(f.valor), 0);
+  const atrasadas = DB.list('financeiro').filter(f => f.negocioId && f.status !== 'Pago' && f.data < hoje);
+  const btn = (estado, k, l) => `<button class="${(state[estado] || ({ agTipo: 'todos', agSit: 'aberto', agPer: '6' })[estado]) === k ? '' : 'sec'}" onclick="state.${estado}='${k}';render()">${l}</button>`;
+  return `${negSel ? `<div class="card row"><b>Parcelas de: ${esc(negSel.tipo)} ${esc(negLabel(negSel))}</b>${negSel.contraparte ? ` · ${esc(negSel.contraparte)}` : ''}<button class="sec" onclick="state.agNeg=null;render()">Ver todos os negócios</button></div>` : ''}
+  <div class="card"><div class="row" style="margin-bottom:8px"><b style="min-width:70px">Mostrar:</b>${btn('agTipo', 'todos', 'Tudo')}${btn('agTipo', 'pagar', '🔴 A pagar (compras)')}${btn('agTipo', 'receber', '🟢 A receber (vendas)')}</div>
+    <div class="row" style="margin-bottom:8px"><b style="min-width:70px">Situação:</b>${btn('agSit', 'aberto', 'Em aberto')}${btn('agSit', 'atrasadas', `Atrasadas (${atrasadas.length})`)}${btn('agSit', 'pagas', 'Já pagas')}${btn('agSit', 'todas', 'Todas')}</div>
+    ${negSel || ['pagas', 'atrasadas'].includes(sit) ? '' : `<div class="row"><b style="min-width:70px">Período:</b>${btn('agPer', '1', 'Este mês')}${btn('agPer', '3', '3 meses')}${btn('agPer', '6', '6 meses')}${btn('agPer', '12', '12 meses')}${btn('agPer', 'tudo', 'Tudo')}</div>`}</div>
+  <div class="kpis"><div class="kpi"><small>A receber (vendas)</small><b style="color:var(--ok)">${brl(soma('Receita'))}</b></div><div class="kpi"><small>A pagar (compras)</small><b style="color:var(--bad)">${brl(soma('Despesa'))}</b></div><div class="kpi"><small>Saldo</small><b style="color:${soma('Receita') - soma('Despesa') >= 0 ? 'var(--ok)' : 'var(--bad)'}">${brl(soma('Receita') - soma('Despesa'))}</b></div><div class="kpi"><small>Parcelas</small><b>${L.length}</b></div></div>
+  <div class="card"><h3>Fluxo por mês</h3>${table([['Mês', x => `<b>${nomeMes(x.m)}</b>`], ['Entra (vendas)', x => `<span style="color:var(--ok)">${brl(x.r)}</span>`], ['Sai (compras)', x => `<span style="color:var(--bad)">${brl(x.p)}</span>`], ['Saldo do mês', x => `<b style="color:${x.r - x.p >= 0 ? 'var(--ok)' : 'var(--bad)'}">${brl(x.r - x.p)}</b>`], ['Saldo acumulado', x => `<span style="color:${x.acum >= 0 ? 'var(--ok)' : 'var(--bad)'}">${brl(x.acum)}</span>`]], resumo)}</div>
+  ${resumo.map(x => `<div class="card"><h3>${nomeMes(x.m)} <small class="muted" style="font-weight:normal">· entra ${brl(x.r)} · sai ${brl(x.p)}</small></h3>${table([
+    ['Dia', f => `<b>${fdate(f.data).slice(0, 5)}</b>` + (f.status !== 'Pago' && f.data < hoje ? ` <span class="tag bad">${-daysUntil(f.data)}d atraso</span>` : f.status !== 'Pago' && daysUntil(f.data) <= 7 ? ` <span class="tag warn">em ${daysUntil(f.data)}d</span>` : '')],
+    ['', f => f.tipo === 'Receita' ? '<span class="tag ok">Receber</span>' : '<span class="tag bad">Pagar</span>'],
+    ['Animal / negócio', f => `<b>${esc(negLabel(neg(f)))}</b><br><small class="muted">${esc(neg(f).tipo || '')}${neg(f).contraparte ? ' · ' + esc(neg(f).contraparte) : ''}</small>`],
+    ['Parcela', f => parc(f)], ['Forma', f => esc(f.forma || '')],
+    ['Valor', f => `<b style="color:${f.tipo === 'Receita' ? 'var(--ok)' : 'var(--bad)'}">${brl(f.valor)}</b>`],
+    ['Situação', f => f.status === 'Pago' ? `<span class="tag ok">Paga${f.pagoEm ? ' em ' + fdate(f.pagoEm) : ''}</span>` : '<span class="tag warn">Em aberto</span>'],
+  ], L.filter(f => f.data.startsWith(x.m)), f => f.status === 'Pago' ? `<button class="lnk" onclick="reabrirParcela('${f.id}')">Desfazer</button>` : `<button class="lnk" onclick="baixar('${f.id}')">✓ Marcar paga</button>`)}</div>`).join('') || '<div class="card"><p class="muted">Nenhuma parcela com esses filtros.</p></div>'}
+  <p class="muted">Valores pela <b>nossa parte</b> em cada negócio (descontada a parte dos sócios e a comissão nas vendas).</p>`;
+}
+window.reabrirParcela = (id) => {
+  const f = DB.get('financeiro', id); DB.upsert('financeiro', { ...f, status: 'Pendente', pagoEm: '' });
+  const n = f.negocioId && DB.get('negocios', f.negocioId);
+  if (n && n.parcelasLista && n.parcelasLista[f.parcelaIdx]) { n.parcelasLista[f.parcelaIdx].pagoEm = ''; DB.upsert('negocios', n); }
+  render();
+};
+
 V.negocios = () => {
   const tab = state.ntab || 'negocios', eu = socioProprio();
   const ns = DB.list('negocios').slice().sort((a, b) => b.data.localeCompare(a.data));
   const minha = (n) => (n.participacoes || []).find(p => p.socioId === eu?.id)?.pct || 0;
-  const tabs = `<div class="tabs">${[['negocios', 'Compras e vendas'], ['animais', 'Resultado por animal'], ['socios', 'Sócios']].map(([k, l]) => `<button class="${tab === k ? 'on' : ''}" onclick="state.ntab='${k}';render()">${l}</button>`).join('')}</div>`;
+  const tabs = `<div class="tabs">${[['negocios', 'Compras e vendas'], ['agenda', '📅 Agenda de parcelas'], ['animais', 'Resultado por animal'], ['socios', 'Sócios']].map(([k, l]) => `<button class="${tab === k ? 'on' : ''}" onclick="state.ntab='${k}';render()">${l}</button>`).join('')}</div>`;
   const aviso = eu ? '' : `<div class="card"><span class="tag warn">Cadastre o próprio haras como sócio (marcando “É o próprio haras”) para o sistema calcular a sua parte e lançar no financeiro.</span> <button class="lnk" onclick="novoSocio(()=>{})">Cadastrar agora</button></div>`;
   const ano = today().slice(0, 4), doAno = ns.filter(n => n.data.startsWith(ano));
   const tot = (t) => doAno.filter(n => n.tipo === t).reduce((s, n) => s + (t === 'Venda' ? valorLiquido(n) : Number(n.valor)) * minha(n) / 100, 0);
   let body = '';
+  const ft = state.nFiltro || 'todos';
+  const nsF = ns.filter(n => ft === 'todos' || (ft === 'compras' ? n.tipo === 'Compra' : n.tipo === 'Venda'));
+  const statusPg = (n) => { const ps = n.parcelasLista || []; if (!ps.length) return ''; const pg = ps.filter(q => q.pagoEm).length, atr = ps.some(q => !q.pagoEm && q.vencimento < today());
+    return pg === ps.length ? '<span class="tag ok">Quitado</span>' : `<span class="tag ${atr ? 'bad' : 'warn'}">${pg}/${ps.length} pagas${atr ? ' · atraso' : ''}</span>`; };
+  const botoesFiltro = `<div class="row" style="margin-bottom:12px">${[['todos', 'Todos'], ['compras', 'Só compras'], ['vendas', 'Só vendas']].map(([k, l]) => `<button class="${ft === k ? '' : 'sec'}" onclick="state.nFiltro='${k}';render()">${l}</button>`).join('')}<span class="muted">${nsF.length} negócio(s)</span></div>`;
   if (tab === 'negocios') body = `<div class="kpis"><div class="kpi"><small>Compras em ${ano} (nossa parte)</small><b style="color:var(--bad)">${brl(tot('Compra'))}</b></div><div class="kpi"><small>Vendas em ${ano} (nossa parte, líquido)</small><b style="color:var(--ok)">${brl(tot('Venda'))}</b></div><div class="kpi"><small>Negócios em ${ano}</small><b>${doAno.length}</b></div></div>
-    <div class="card">${table([
-      ['Data', n => fdate(n.data)], ['Tipo', n => `<span class="tag ${n.tipo === 'Venda' ? 'ok' : 'warn'}">${n.tipo}</span>`], ['Animal / produto', n => `<b>${esc(negLabel(n))}</b>` + (Number(n.pctAnimal) !== 100 ? `<br><small class="muted">${pct(n.pctAnimal)} do animal</small>` : '')],
+    <div class="card">${botoesFiltro}${table([
+      ['Data', n => fdate(n.data)], ['Tipo', n => `<span class="tag ${n.tipo === 'Venda' ? 'ok' : 'warn'}">${n.tipo}</span>`], ['Pagamento', statusPg], ['Animal / produto', n => `<b>${esc(negLabel(n))}</b>` + (Number(n.pctAnimal) !== 100 ? `<br><small class="muted">${pct(n.pctAnimal)} do animal</small>` : '')],
       ['Comprador / vendedor', n => esc(n.contraparte)], ['Valor total', n => brl(n.valor) + (n.parcelasLista ? `<br><small class="muted">${n.parcelasLista.length} parcela(s), ${n.parcelasLista.filter(q => q.pagoEm).length} paga(s)</small>` : n.parcelas > 1 ? `<br><small class="muted">${n.parcelas}x de ${brl(n.valor / n.parcelas)}</small>` : '') + (n.comissaoPct ? `<br><small class="muted">comissão ${pct(n.comissaoPct)}</small>` : '')],
       ['Sociedade', n => (n.participacoes || []).map(p => `<span class="tag" title="${brl((n.tipo === 'Venda' ? valorLiquido(n) : n.valor) * p.pct / 100)}">${esc(sname(p.socioId))} ${pct(p.pct)}</span>`).join(' ')],
       ['Nossa parte', n => `<b>${brl((n.tipo === 'Venda' ? valorLiquido(n) : Number(n.valor)) * minha(n) / 100)}</b>`],
-    ], ns, n => `<button class="lnk" onclick="editNegocio('${n.id}')">Editar</button><button class="del" onclick="delNegocio('${n.id}')">Excluir</button>`)}</div>`;
+    ], nsF, n => `<button class="lnk" onclick="state.ntab='agenda';state.agNeg='${n.id}';render()">Parcelas</button><button class="lnk" onclick="editNegocio('${n.id}')">Editar</button><button class="del" onclick="delNegocio('${n.id}')">Excluir</button>`)}</div>`;
+  if (tab === 'agenda') body = agendaParcelas();
   if (tab === 'animais') {
     const ids = [...new Set(ns.filter(n => n.animalId && (!n.produto || n.produto === 'Animal')).map(n => n.animalId))];
     const L = ids.map(id => { const a = animal(id) || { nome: '?' }; const N = ns.filter(n => n.animalId === id);
