@@ -545,7 +545,12 @@ window.exportCSV = () => {
   const csv = [...t.rows].map(r => [...r.cells].map(c => '"' + c.innerText.replace(/"/g, '""') + '"').join(';')).join('\n');
   download('relatorio.csv', '﻿' + csv, 'text/csv');
 };
-function download(name, content, type) { const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([content], { type })); a.download = name; a.click(); }
+async function download(name, content, type) {
+  const blob = content instanceof Blob ? content : new Blob([content], { type });
+  let dl = null; try { dl = window.claude && typeof window.claude.use === 'function' ? await window.claude.use('downloads') : null; } catch (e) { dl = null; }
+  if (dl) { try { await dl.save({ filename: name, data: blob }); return; } catch (e) { if (e?.code === 'declined') return; if (e?.code === 'rejected_extension') return alert('Este tipo de arquivo não pode ser baixado aqui. Use “Abrir em nova aba”.'); } }
+  const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name; document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 60000);
+}
 
 V.site = () => {
   const s = DB.data.site; const venda = DB.list('animais').filter(a => a.aVenda === 'Sim');

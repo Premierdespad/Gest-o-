@@ -135,19 +135,50 @@ async function blobDoAnexo(id) {
   return { x, b: b.type ? b : new Blob([b], { type: x.mime || 'application/octet-stream' }) };
 }
 window.baixarAnexo = async (id) => {
-  try { const { x, b } = await blobDoAnexo(id); const a = document.createElement('a'); a.href = URL.createObjectURL(b); a.download = x.nome; document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 60000); }
-  catch (e) { alert('Não foi possível abrir: ' + e.message); }
+  try { const { x, b } = await blobDoAnexo(id); await download(x.nome, b, b.type); }
+  catch (e) { alert('Não foi possível baixar: ' + e.message); }
 };
+// Leitor de PDF próprio (pdf.js): dentro do link o leitor do navegador é bloqueado no computador
+function carregarPdfJs() {
+  if (window._pdfjs) return window._pdfjs;
+  window._pdfjs = new Promise((ok, err) => {
+    const sc = document.createElement('script'); sc.src = 'vendor/pdfjs/pdf.min.js';
+    sc.onload = () => { const lib = window.pdfjsLib; if (!lib) return err(new Error('leitor de PDF indisponível')); lib.GlobalWorkerOptions.workerSrc = 'vendor/pdfjs/pdf.worker.min.js'; ok(lib); };
+    sc.onerror = () => { window._pdfjs = null; err(new Error('não consegui carregar o leitor de PDF')); };
+    document.head.appendChild(sc);
+  });
+  return window._pdfjs;
+}
+async function desenharPdf(blob, alvo, aviso) {
+  const lib = await carregarPdfJs();
+  const pdf = await lib.getDocument({ data: new Uint8Array(await blob.arrayBuffer()), isEvalSupported: false }).promise;
+  const largura = Math.min(alvo.clientWidth || 900, 1200), max = Math.min(pdf.numPages, 30);
+  for (let n = 1; n <= max; n++) {
+    const pg = await pdf.getPage(n), v0 = pg.getViewport({ scale: 1 }), escala = largura / v0.width, dpr = Math.min(window.devicePixelRatio || 1, 2);
+    const vp = pg.getViewport({ scale: escala * dpr }), c = document.createElement('canvas');
+    c.width = vp.width; c.height = vp.height; c.style.width = '100%'; c.style.display = 'block'; c.style.margin = '0 auto 10px'; c.style.boxShadow = '0 1px 4px rgba(0,0,0,.2)'; c.style.background = '#fff';
+    alvo.appendChild(c); await pg.render({ canvasContext: c.getContext('2d'), viewport: vp }).promise;
+  }
+  if (pdf.numPages > max) aviso.textContent = `Mostrando ${max} de ${pdf.numPages} páginas. Use “Baixar” para ver o arquivo completo.`;
+}
 window.verAnexo = async (id) => {
+  let url;
   try {
-    const { x, b } = await blobDoAnexo(id), url = URL.createObjectURL(b);
+    const { x, b } = await blobDoAnexo(id); url = URL.createObjectURL(b);
+    const ePdf = /pdf/.test(b.type) || /\.pdf$/i.test(x.nome), eImg = /image/.test(b.type);
+    const link = x.assetId ? '/_blob/' + x.assetId : url;
     const m = document.createElement('div'); m.className = 'modal';
-    const corpo = /image/.test(b.type) ? `<img src="${url}" style="max-width:100%;border-radius:8px">` : /pdf/.test(b.type) ? `<iframe src="${url}" style="width:100%;height:70vh;border:1px solid var(--line);border-radius:8px"></iframe>` : '<p class="muted">Pré-visualização indisponível para este tipo de arquivo. Use “Baixar”.</p>';
-    m.innerHTML = `<div class="box" style="max-width:960px"><div class="top"><h3 style="margin:0">${esc(x.nome)}</h3><div class="row"><button class="sec" id="ax_baixar">Baixar</button><button class="sec" data-x>Fechar</button></div></div>${corpo}</div>`;
+    m.innerHTML = `<div class="box" style="max-width:960px"><div class="top"><h3 style="margin:0;word-break:break-all">${esc(x.nome)}</h3><div class="row"><a class="btn sec" style="color:var(--ink)" href="${link}" target="_blank" rel="noopener">Abrir em nova aba</a><button class="sec" id="ax_baixar">Baixar</button><button class="sec" data-x>Fechar</button></div></div>
+      ${eImg ? `<img src="${url}" style="max-width:100%;border-radius:8px">` : ePdf ? '<p class="muted" id="ax_aviso">Abrindo o PDF...</p><div id="ax_pdf" style="max-height:72vh;overflow:auto;background:#e9e3da;padding:10px;border-radius:8px"></div>' : '<p class="muted">Pré-visualização indisponível para este tipo de arquivo. Use “Baixar”.</p>'}</div>`;
     document.body.appendChild(m);
     m.querySelector('#ax_baixar').onclick = () => baixarAnexo(id);
     m.querySelectorAll('[data-x]').forEach(bt => bt.onclick = () => { m.remove(); URL.revokeObjectURL(url); });
-  } catch (e) { alert('Não foi possível abrir: ' + e.message); }
+    if (ePdf) {
+      const aviso = m.querySelector('#ax_aviso');
+      try { await desenharPdf(b, m.querySelector('#ax_pdf'), aviso); if (aviso.textContent === 'Abrindo o PDF...') aviso.textContent = ''; }
+      catch (e) { aviso.textContent = 'Não consegui mostrar o PDF aqui (' + e.message + '). Use “Abrir em nova aba” ou “Baixar”.'; }
+    }
+  } catch (e) { if (url) URL.revokeObjectURL(url); alert('Não foi possível abrir: ' + e.message); }
 };
 // Na agenda de parcelas: anexos ligados a uma parcela
 window.anexosDaParcela = (negocioId, parcela) => anexosDe(x => x.negocioId === negocioId && Number(x.parcela) === Number(parcela));
