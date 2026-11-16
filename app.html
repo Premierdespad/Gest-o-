@@ -1,0 +1,11 @@
+<!doctype html>
+<html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Crina – Sistema</title><link rel="stylesheet" href="css/style.css"><link rel="manifest" href="manifest.json"><meta name="theme-color" content="#2b2420"></head>
+<body><div class="layout">
+<aside class="side"><h1>🐴 Cri<span>na</span></h1><div style="padding:0 20px 14px;font-size:13px;color:#bfae9c" id="harasNome"></div>
+<nav id="nav"></nav><div id="user" style="padding:20px"></div><div style="padding:0 20px"><a href="index.html" style="padding:0;border:0;background:none;font-size:12px">← Página inicial</a></div></aside>
+<main class="main"><div class="top"><div class="row"><button class="sec menu-btn" onclick="document.querySelector('.side').classList.toggle('open')">☰</button><h2 id="title"></h2></div><div class="row" id="actions"></div></div>
+<div id="content"></div></main></div>
+<script src="js/db.js"></script><script src="js/app.js"></script>
+<script>if('serviceWorker' in navigator)navigator.serviceWorker.register('sw.js').catch(()=>{});</script>
+</body></html>
