@@ -141,21 +141,36 @@ async function iniciarNuvem() {
   let est;
   try { est = await comRetentativa(() => db.doc('meta/estado').get()); } catch (e) { clearTimeout(timer); NUVEM.erro = 'Não consegui ler a nuvem (' + (e?.code || 'erro') + ').'; indicadorNuvem(); return; }
   NUVEM.iniciado = est.exists && est.data()?.iniciado;
-  if (!NUVEM.iniciado) { clearTimeout(timer); indicadorNuvem(); render(); return; } // espera alguém enviar os dados (Configurações)
-  await assinar(); clearTimeout(timer);
+  if (!NUVEM.iniciado) {
+    clearTimeout(timer); indicadorNuvem(); render();
+    // se outro aparelho enviar os dados, este passa a usar a nuvem sozinho
+    const un = db.doc('meta/estado').onSnapshot(s => { if (s.exists && s.data()?.iniciado && !NUVEM.ativo && !NUVEM.migrando) { un(); NUVEM.iniciado = true; ligarNuvem(); } }, () => {});
+    return;
+  }
+  await ligarNuvem(); clearTimeout(timer);
+}
+async function ligarNuvem() {
+  await assinar();
   NUVEM.ativo = true;
   try { localStorage.setItem(DB_KEY, JSON.stringify(DB.data)); } catch (e) { /* cache opcional */ }
   indicadorNuvem(); render();
   enviarNuvem(); // completa campos novos (ex.: migração de versão)
 }
+const ID_APARELHO = (() => { try { let i = sessionStorage.getItem('cn_aparelho'); if (!i) sessionStorage.setItem('cn_aparelho', i = uid()); return i; } catch (e) { return uid(); } })();
 
 // Primeira vez: envia para a nuvem os dados que estão neste navegador
 window.enviarParaNuvem = async () => {
-  if (!NUVEM.db || NUVEM.iniciado) return;
+  if (!NUVEM.db || NUVEM.iniciado || NUVEM.migrando) return;
   const n = (c) => DB.list(c).length;
   if (!(await confirmar(`Enviar os dados DESTE navegador para a nuvem?\n\n${DB.list('animais').filter(a => a.status !== 'Externo').length} animais · ${n('reproducao')} coberturas · ${n('negocios')} compras/vendas · ${n('financeiro')} lançamentos · ${n('anexos')} anexos\n\nFaça isso no aparelho onde você fez os lançamentos. Depois, todos os aparelhos passam a usar estes dados.`, 'Enviar'))) return;
+  // confere de novo na hora do clique: outro aparelho pode ter enviado (ou estar enviando) os dados
+  let est; try { est = (await NUVEM.db.doc('meta/estado').get()).data() || {}; } catch (e) { est = {}; }
+  if (est.iniciado) { await avisar('Os dados já foram enviados para a nuvem por outro aparelho. Este aparelho vai passar a usar os dados da nuvem.'); NUVEM.iniciado = true; return ligarNuvem(); }
+  if (est.iniciando && est.aparelho !== ID_APARELHO && Date.now() - new Date(est.em).getTime() < 15 * 60000) return avisar('Outro aparelho está enviando os dados para a nuvem agora. Espere alguns minutos: quando terminar, este aparelho passa a usar a nuvem sozinho.');
   const msg = (t) => { const el = document.getElementById('nuvemMsg'); if (el) el.textContent = t; indicadorNuvem(t); };
+  NUVEM.migrando = true;
   try {
+    await NUVEM.db.doc('meta/estado').set({ iniciando: true, iniciado: false, aparelho: ID_APARELHO, em: new Date().toISOString() });
     // 1) anexos guardados no navegador -> armazenamento de arquivos do link
     const semNuvem = DB.list('anexos').filter(x => !x.assetId);
     if (semNuvem.length && NUVEM.assets) {
@@ -173,12 +188,12 @@ window.enviarParaNuvem = async () => {
       else if (!o.apagar) { await NUVEM.db.doc(o.col + '/' + o.id).set(o.corpo); NUVEM.sinc[o.col].set(o.id, o.c); }
     }), 4, (f, t) => msg(`Enviando dados: ${f} de ${t}...`));
     // 3) marca a nuvem como pronta e passa a escutar
-    await NUVEM.db.doc('meta/estado').set({ iniciado: true, em: new Date().toISOString() });
-    NUVEM.iniciado = true;
+    await NUVEM.db.doc('meta/estado').set({ iniciado: true, aparelho: ID_APARELHO, em: new Date().toISOString() });
+    NUVEM.iniciado = true; NUVEM.migrando = false;
     await assinar(); NUVEM.ativo = true; msg('');
     alert('Pronto! Os dados estão na nuvem. Agora qualquer aparelho que abrir o link vê as mesmas informações.');
     render();
-  } catch (e) { msg(''); alert('O envio parou no meio (' + (e?.code || e?.message) + '). Pode clicar de novo: o que já foi enviado não é duplicado.'); }
+  } catch (e) { NUVEM.migrando = false; msg(''); alert('O envio parou no meio (' + (e?.code || e?.message) + '). Pode clicar de novo: o que já foi enviado não é duplicado.'); }
 };
 
 function indicadorNuvem(txt) {

@@ -11,7 +11,8 @@ const DB = {
       const soExemploOuImportado = !this.data || this.data.config?.haras === 'Haras Vale Dourado' || !(this.data.animais || []).some(a => !a.importado && a.status !== 'Externo');
       if (soExemploOuImportado) { this.data = JSON.parse(JSON.stringify(ini)); this.save(); }
     }
-    if (!this.data) { this.data = seed(); this.save(); }
+    // dentro do link do Claude os dados vêm da nuvem: começa vazio (sem exemplo) até ela responder
+    if (!this.data) { this.data = window.claude ? emptyDb() : seed(); this.save(); }
     // migração de versões anteriores
     (this.data.animais || []).forEach(a => { a.posse = a.posse || 'Próprio'; if (!a.pesoRateio) a.pesoRateio = 1; });
     this.data.negocios = this.data.negocios || []; this.data.socios = this.data.socios || []; this.data.anexos = this.data.anexos || [];
