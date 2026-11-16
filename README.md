@@ -39,5 +39,9 @@ python3 -m http.server 8080
 ```
 Também pode ser publicado como site estático (GitHub Pages, Netlify, Vercel).
 
+## Importar do sistema anterior
+Em **Configurações → Importar do sistema anterior**, envie o backup `.db` (SQLite) do app de controle de criação. São importados cavalos (com pais/garanhões externos para a genealogia), coberturas, sanidade, compras/vendas (animais e embriões) com todas as parcelas e pagamentos, e despesas.
+A importação pode ser repetida: registros já importados são atualizados (ids `imp-*`), sem duplicar, e o que só existe neste sistema (sociedade, comissão, posse, pensão, rateio) é preservado. O arquivo é lido no próprio navegador (sql.js em `vendor/`), sem enviar dados a servidores.
+
 ## Sincronização (planejada)
 Todo registro tem `id` e `atualizadoEm`, para sincronizar com o site de controle de criação já existente: reprodução e compra/venda atualizadas pelo app e enviadas ao site; os demais dados continuam sendo editados no site.

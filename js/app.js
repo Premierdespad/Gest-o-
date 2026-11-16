@@ -105,6 +105,7 @@ const F_ANIMAL = [
   { k: 'paiId', l: 'Pai', t: 'animal', opts: () => animalOpts(a => a.sexo !== 'Fêmea') },
   { k: 'maeId', l: 'Mãe', t: 'animal', opts: () => animalOpts(a => a.sexo === 'Fêmea') },
   { k: 'proprietario', l: 'Proprietário' }, { k: 'criador', l: 'Criador' },
+  { k: 'origem', l: 'Origem', t: 'select', opts: ['Nascido no haras', 'Comprado', 'Recebido em troca', 'Outro'] }, { k: 'valorEstimado', l: 'Valor estimado (R$)', t: 'number' },
   { k: 'foto', l: 'Foto', t: 'file' },
   { k: 'aVenda', l: 'Exibir à venda no site?', t: 'select', opts: ['Não', 'Sim'] }, { k: 'preco', l: 'Preço de venda (R$)', t: 'number' },
   { k: 'descricaoVenda', l: 'Descrição para o site', t: 'textarea', full: true },
@@ -115,7 +116,8 @@ const F_MOV = [{ k: 'tipo', l: 'Tipo', t: 'select', opts: ['Entrada', 'Saída'],
 const F_REPRO = [
   { k: 'eguaId', l: 'Égua', t: 'animal', opts: () => animalOpts(a => a.sexo === 'Fêmea'), req: true },
   { k: 'garanhaoId', l: 'Garanhão', t: 'animal', opts: () => animalOpts(a => a.sexo === 'Macho') },
-  { k: 'metodo', l: 'Método', t: 'select', opts: ['Monta natural', 'Monta controlada', 'Inseminação (sêmen fresco)', 'Inseminação (sêmen resfriado)', 'Inseminação (sêmen congelado)', 'Transferência de embrião'] },
+  { k: 'metodo', l: 'Método', t: 'select', opts: ['Monta natural', 'Monta controlada', 'Inseminação (sêmen fresco)', 'Inseminação (sêmen resfriado)', 'Inseminação (sêmen congelado)', 'Inseminação artificial', 'Transferência de embrião'] },
+  { k: 'dataInovulacao', l: 'Data da inovulação (TE)', t: 'date' },
   { k: 'receptoraId', l: 'Receptora (TE)', t: 'animal', opts: () => animalOpts(a => a.sexo === 'Fêmea') },
   { k: 'dataCobertura', l: 'Data da cobertura/IA', t: 'date', req: true },
   { k: 'dataDG', l: 'Data do diagnóstico', t: 'date' },
@@ -214,7 +216,7 @@ V.animal = () => {
   const tabs = [['dados', 'Dados'], ['genealogia', 'Genealogia'], ['biometria', 'Biometria'], ['movimentacoes', 'Entradas e saídas'], ['sanidade', 'Prontuário'], ['reproducao', 'Reprodução'], ['financeiro', 'Custos e resultado']];
   let body = '';
   if (state.tab === 'dados') body = `<div class="row" style="align-items:flex-start;gap:20px">${a.foto ? `<img src="${a.foto}" class="photo">` : '<div class="photo"></div>'}
-    <div class="grid" style="flex:1">${[['Registro', a.registro], ['Microchip', a.chip], ['Sexo', a.sexo], ['Raça', a.raca], ['Pelagem', a.pelagem], ['Nascimento', fdate(a.nascimento) + (a.nascimento ? ` (${idade(a.nascimento)})` : '')], ['Categoria', a.categoria], ['Situação', a.status], ['Local', a.local], ['Pai', aname(a.paiId)], ['Mãe', aname(a.maeId)], ['Proprietário', a.proprietario], ['Criador', a.criador], ['À venda', a.aVenda === 'Sim' ? 'Sim – ' + brl(a.preco) : 'Não']].map(([k, v]) => `<div><label>${k}</label>${esc(v) || '—'}</div>`).join('')}
+    <div class="grid" style="flex:1">${[['Registro', a.registro], ['Microchip', a.chip], ['Sexo', a.sexo], ['Raça', a.raca], ['Pelagem', a.pelagem], ['Nascimento', fdate(a.nascimento) + (a.nascimento ? ` (${idade(a.nascimento)})` : '')], ['Categoria', a.categoria], ['Situação', a.status], ['Local', a.local], ['Pai', aname(a.paiId)], ['Mãe', aname(a.maeId)], ['Proprietário', a.proprietario], ['Criador', a.criador], ['Origem', a.origem], ['Valor estimado', a.valorEstimado ? brl(a.valorEstimado) : ''], ['À venda', a.aVenda === 'Sim' ? 'Sim – ' + brl(a.preco) : 'Não']].map(([k, v]) => `<div><label>${k}</label>${esc(v) || '—'}</div>`).join('')}
     ${a.obs ? `<div class="full"><label>Observações</label>${esc(a.obs)}</div>` : ''}</div></div>
     <h4>Filhos (${filhos.length})</h4>${filhos.map(f => `<a href="#" onclick="state.animalId='${f.id}';render();return false">${esc(f.nome)}</a>`).join(' · ') || '<span class="muted">Nenhum</span>'}`;
   if (state.tab === 'genealogia') body = genealogia(a);
@@ -297,7 +299,13 @@ V.financeiro = () => {
     ['Data', f => fdate(f.data)], ['Descrição', f => esc(f.descricao) + (f.contraparte ? `<br><small class="muted">${esc(f.contraparte)}</small>` : '')], ['Centro', f => esc(f.centro)], ['Animal / rateio', f => f.animalId ? esc(aname(f.animalId)) : f.tipo === 'Despesa' ? `<small class="muted">${esc(f.rateio || 'Todos os animais')}</small>` : ''],
     ['Valor', f => `<b style="color:${f.tipo === 'Receita' ? 'var(--ok)' : 'var(--bad)'}">${f.tipo === 'Despesa' ? '-' : ''}${brl(f.valor)}</b>`],
     ['Situação', f => `<span class="tag ${f.status === 'Pago' ? 'ok' : 'warn'}">${f.status}</span>`],
-  ], rows, f => `${f.status === 'Pendente' ? `<button class="lnk" onclick="DB.upsert('financeiro',{...DB.get('financeiro','${f.id}'),status:'Pago'});render()">Baixar</button>` : ''}<button class="lnk" onclick="openForm('Editar lançamento',F_FIN(),DB.get('financeiro','${f.id}'),o=>DB.upsert('financeiro',o))">Editar</button><button class="del" onclick="del('financeiro','${f.id}')">Excluir</button>`)}</div>`;
+  ], rows, f => `${f.status === 'Pendente' ? `<button class="lnk" onclick="baixar('${f.id}')">Baixar</button>` : ''}<button class="lnk" onclick="openForm('Editar lançamento',F_FIN(),DB.get('financeiro','${f.id}'),o=>DB.upsert('financeiro',o))">Editar</button><button class="del" onclick="del('financeiro','${f.id}')">Excluir</button>`)}</div>`;
+};
+window.baixar = (id) => {
+  const f = DB.get('financeiro', id); DB.upsert('financeiro', { ...f, status: 'Pago', pagoEm: today() });
+  const n = f.negocioId && DB.get('negocios', f.negocioId);
+  if (n && n.parcelasLista && n.parcelasLista[f.parcelaIdx]) { n.parcelasLista[f.parcelaIdx].pagoEm = today(); DB.upsert('negocios', n); }
+  render();
 };
 window.novoCentro = () => { const n = prompt('Nome do novo centro de custo:'); if (n && !DB.data.centrosCusto.includes(n)) { DB.data.centrosCusto.push(n); DB.save(); render(); } };
 
@@ -463,6 +471,8 @@ V.config = () => `<div class="card"><h3>Dados do haras</h3><div class="row"><inp
   <div class="card"><h3>Backup e sincronização</h3><p class="muted">Os dados ficam salvos neste navegador. Exporte um backup para guardar ou levar para outro dispositivo.</p>
   <div class="row"><button onclick="download('backup-haras-${today()}.json',JSON.stringify(DB.data),'application/json')">Exportar backup</button>
   <label class="btn sec" style="margin:0;color:var(--ink);font-size:14px">Importar backup<input type="file" accept=".json" hidden onchange="importar(this.files[0])"></label></div></div>
+  <div class="card"><h3>Importar do sistema anterior (arquivo .db)</h3><p class="muted">Envie o backup do app de controle de criação (arquivo <b>.db</b>). Animais, coberturas, sanidade, compras/vendas e parcelas são trazidos. Pode importar de novo sempre que quiser: os registros já importados são <b>atualizados</b>, sem duplicar.</p>
+  <label class="btn" style="margin:0;color:#fff;font-size:14px">Escolher arquivo .db<input type="file" accept=".db,.sqlite,.sqlite3" hidden onchange="importarDb(this.files[0])"></label> <span id="impStatus" class="muted"></span></div>
   <div class="card"><h3>Zona de risco</h3><div class="row"><button class="sec" onclick="if(confirm('Recarregar dados de demonstração? Os dados atuais serão perdidos.')){DB.reset();render()}">Restaurar dados de demonstração</button><button class="sec" style="color:var(--bad)" onclick="if(confirm('Apagar TODOS os dados?')){DB.clear();render()}">Começar do zero</button></div></div>`;
 window.importar = (f) => { const r = new FileReader(); r.onload = () => { try { DB.data = JSON.parse(r.result); DB.save(); alert('Backup importado!'); render(); } catch (e) { alert('Arquivo inválido.'); } }; r.readAsText(f); };
 
@@ -475,9 +485,13 @@ const socioProprio = () => DB.list('socios').find(s => s.proprio === 'Sim');
 const pct = (v) => (Math.round(Number(v) * 100) / 100).toLocaleString('pt-BR') + '%';
 
 // Composição societária atual de um animal (em % do animal), a partir do histórico de negócios
+const negLabel = (n) => (n.produto && n.produto !== 'Animal') ? `${n.produto}${n.quantidade > 1 ? ' ×' + n.quantidade : ''}: ${aname(n.doadoraId) || '?'}${n.garanhaoId || n.garanhaoExterno ? ' × ' + (aname(n.garanhaoId) || n.garanhaoExterno) : ''}` : aname(n.animalId);
 function composicao(animalId, ate = '9999-12-31') {
-  const c = {};
-  DB.list('negocios').filter(n => n.animalId === animalId && n.data <= ate).sort((a, b) => a.data.localeCompare(b.data)).forEach(n => {
+  const c = {}, ns = DB.list('negocios').filter(n => n.animalId === animalId && (!n.produto || n.produto === 'Animal'));
+  // animal sem compra registrada (nascido no haras, por exemplo) começa 100% nosso
+  const eu = socioProprio(), an = animal(animalId);
+  if (eu && an && an.status !== 'Externo' && an.posse !== 'Pensão' && !ns.some(n => n.tipo === 'Compra')) c[eu.id] = 100;
+  DB.list('negocios').filter(n => n.animalId === animalId && (!n.produto || n.produto === 'Animal') && n.data <= ate).sort((a, b) => a.data.localeCompare(b.data)).forEach(n => {
     (n.participacoes || []).forEach(p => { const fr = Number(n.pctAnimal || 100) * Number(p.pct) / 100; c[p.socioId] = (c[p.socioId] || 0) + (n.tipo === 'Compra' ? fr : -fr); });
   });
   Object.keys(c).forEach(k => { if (Math.abs(c[k]) < 0.001) delete c[k]; });
@@ -491,10 +505,16 @@ function lancarFinanceiro(n) {
   const eu = socioProprio(); const p = (n.participacoes || []).find(x => x.socioId === eu?.id);
   if (p && Number(p.pct)) {
     const total = (n.tipo === 'Venda' ? valorLiquido(n) : Number(n.valor)) * Number(p.pct) / 100;
+    const fator = Number(p.pct) / 100 * (n.tipo === 'Venda' ? 1 - (Number(n.comissaoPct) || 0) / 100 : 1);
+    if (n.parcelasLista && n.parcelasLista.length) {
+      const np = n.parcelasLista.length;
+      n.parcelasLista.forEach((q, i) => DB.data.financeiro.push({ id: uid(), negocioId: n.id, parcelaIdx: i, tipo: n.tipo === 'Venda' ? 'Receita' : 'Despesa', data: q.vencimento, descricao: `${n.tipo} ${negLabel(n)}` + (Number(p.pct) !== 100 ? ` (${pct(p.pct)} do negócio)` : '') + (np > 1 ? ` – parcela ${q.numero || i + 1}/${np}` : ''), valor: Math.round(Number(q.valor) * fator * 100) / 100, centro: n.tipo === 'Venda' ? 'Vendas' : 'Compra de animais', animalId: n.animalId || n.doadoraId, contraparte: n.contraparte, forma: q.forma, status: q.pagoEm ? 'Pago' : 'Pendente', pagoEm: q.pagoEm || '' }));
+    } else {
     const np = Math.max(1, Number(n.parcelas) || 1);
     for (let i = 0; i < np; i++) {
       const venc = addMonths(n.primeiroVenc || n.data, i);
-      DB.data.financeiro.push({ id: uid(), negocioId: n.id, tipo: n.tipo === 'Venda' ? 'Receita' : 'Despesa', data: venc, descricao: `${n.tipo} ${aname(n.animalId)} (${pct(p.pct)} do negócio)` + (np > 1 ? ` – parcela ${i + 1}/${np}` : ''), valor: Math.round(total / np * 100) / 100, centro: n.tipo === 'Venda' ? 'Vendas' : 'Compra de animais', animalId: n.animalId, contraparte: n.contraparte, status: venc <= today() && n.quitado !== 'Não' ? 'Pago' : 'Pendente' });
+      DB.data.financeiro.push({ id: uid(), negocioId: n.id, tipo: n.tipo === 'Venda' ? 'Receita' : 'Despesa', data: venc, descricao: `${n.tipo} ${negLabel(n)} (${pct(p.pct)} do negócio)` + (np > 1 ? ` – parcela ${i + 1}/${np}` : ''), valor: Math.round(total / np * 100) / 100, centro: n.tipo === 'Venda' ? 'Vendas' : 'Compra de animais', animalId: n.animalId, contraparte: n.contraparte, status: venc <= today() && n.quitado !== 'Não' ? 'Pago' : 'Pendente' });
+    }
     }
   }
   if (!DB.data.centrosCusto.includes('Compra de animais')) DB.data.centrosCusto.push('Compra de animais');
@@ -510,6 +530,10 @@ window.editNegocio = (id, tipoPadrao) => {
   m.innerHTML = `<form class="box"><div class="top"><h3 style="margin:0">${id ? 'Editar' : 'Nova'} ${n.tipo === 'Venda' ? 'venda' : 'compra'}</h3><button type="button" class="sec" data-x>Fechar</button></div>
     <div class="grid">
       ${field({ k: 'tipo', l: 'Tipo', t: 'select', opts: ['Compra', 'Venda'], req: true }, n.tipo)}
+      ${field({ k: 'produto', l: 'O que foi negociado', t: 'select', opts: ['Animal', 'Embrião', 'Sêmen', 'Outro'] }, n.produto || 'Animal')}
+      ${field({ k: 'doadoraId', l: 'Embrião: doadora', t: 'animal', opts: () => animalOpts(a => a.sexo === 'Fêmea') }, n.doadoraId)}
+      ${field({ k: 'garanhaoId', l: 'Embrião/sêmen: garanhão', t: 'animal', opts: () => animalOpts(a => a.sexo !== 'Fêmea') }, n.garanhaoId)}
+      ${field({ k: 'quantidade', l: 'Quantidade', t: 'number' }, n.quantidade || 1)}
       <div><label>Animal *</label><select id="f_animalId"><option value="">— ${n.tipo === 'Compra' ? 'novo animal (preencha o nome ao lado)' : 'selecione'} —</option>${animalOpts().map(([v, l]) => `<option value="${v}" ${v === n.animalId ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select></div>
       ${id ? '' : field({ k: 'novoNome', l: 'Nome do animal novo (se não cadastrado)' }, '')}
       ${field({ k: 'data', l: 'Data do negócio', t: 'date', req: true }, n.data)}
@@ -518,7 +542,7 @@ window.editNegocio = (id, tipoPadrao) => {
       ${field({ k: 'valor', l: 'Valor total do negócio (R$)', t: 'number', req: true }, n.valor)}
       ${field({ k: 'comissaoPct', l: 'Comissão / corretagem (%)', t: 'number' }, n.comissaoPct)}
       ${field({ k: 'intermediario', l: 'Corretor / leilão' }, n.intermediario)}
-      ${field({ k: 'parcelas', l: 'Nº de parcelas', t: 'number' }, n.parcelas)}
+      ${field({ k: 'parcelas', l: 'Nº de parcelas' + (n.parcelasLista ? ' (importadas: altere só se quiser recalcular)' : ''), t: 'number' }, n.parcelas)}
       ${field({ k: 'primeiroVenc', l: '1º vencimento', t: 'date' }, n.primeiroVenc || n.data)}
       ${field({ k: 'quitado', l: 'Parcelas vencidas já pagas?', t: 'select', opts: ['Sim', 'Não'] }, n.quitado)}
       <div class="full"><label>Sociedade: participação de cada sócio neste negócio (deve somar 100%)</label><div id="socs">${(n.participacoes.length ? n.participacoes : [{}]).map(linhaSoc).join('')}</div>
@@ -534,7 +558,10 @@ window.editNegocio = (id, tipoPadrao) => {
     m.querySelectorAll('.soc').forEach(r => { const p = Number(r.querySelector('input').value) || 0; s += p; r.querySelector('.vl').textContent = brl(liq * p / 100); });
     $('#somaPct', m).innerHTML = ` Soma: <span style="color:${Math.abs(s - 100) < 0.01 ? 'var(--ok)' : 'var(--bad)'}">${pct(s)}</span>`;
     const aid = $('#f_animalId', m).value, isVenda = $('#f_tipo', m).value === 'Venda';
-    const nn = $('#f_novoNome', m); if (nn) nn.parentNode.style.display = isVenda ? 'none' : '';
+    const prodAnimal = $('#f_produto', m).value === 'Animal';
+    const nn = $('#f_novoNome', m); if (nn) nn.parentNode.style.display = isVenda || !prodAnimal ? 'none' : '';
+    ['doadoraId', 'garanhaoId', 'quantidade'].forEach(k => $('#f_' + k, m).parentNode.style.display = prodAnimal ? 'none' : '');
+    $('#f_animalId', m).parentNode.style.display = prodAnimal ? '' : 'none';
     let html = '';
     if (isVenda && aid) { const c = composicao(aid); html = 'Composição atual do animal: ' + (Object.entries(c).map(([k, v]) => `${esc(sname(k))} ${pct(v)}`).join(' · ') || 'sem sociedade registrada') + (Object.keys(c).length ? ` <button type="button" class="lnk" id="usarComp">usar esta divisão</button>` : ''); }
     if ($('#sugestao', m).innerHTML !== html) $('#sugestao', m).innerHTML = html;
@@ -556,10 +583,15 @@ window.editNegocio = (id, tipoPadrao) => {
     if (Math.abs(soma - 100) > 0.01) return alert(`A participação dos sócios precisa somar 100% (está em ${pct(soma)}).`);
     let animalId = g('animalId');
     if (!animalId && g('novoNome') && g('tipo') === 'Compra') animalId = DB.upsert('animais', { nome: g('novoNome'), sexo: 'Macho', status: 'Ativo', posse: 'Próprio', pesoRateio: 1, dataEntrada: g('data'), aVenda: 'Não' }).id;
-    if (!animalId) return alert('Selecione o animal (ou informe o nome do animal novo, na compra).');
-    const o = { ...n, tipo: g('tipo'), animalId, data: g('data'), contraparte: g('contraparte'), pctAnimal: Number(g('pctAnimal')) || 100, valor: Number(g('valor')) || 0, comissaoPct: Number(g('comissaoPct')) || 0, intermediario: g('intermediario'), parcelas: Number(g('parcelas')) || 1, primeiroVenc: g('primeiroVenc') || g('data'), quitado: g('quitado'), participacoes: parts, obs: g('obs') };
+    const produto = g('produto');
+    if (produto !== 'Animal') animalId = '';
+    else if (!animalId) return alert('Selecione o animal (ou informe o nome do animal novo, na compra).');
+    const mudouValor = n.parcelasLista && (Number(g('valor')) !== Number(n.valor) || Number(g('parcelas')) !== Number(n.parcelas));
+    const o = { ...n, tipo: g('tipo'), produto, doadoraId: g('doadoraId'), garanhaoId: g('garanhaoId'), quantidade: Number(g('quantidade')) || 1, animalId, data: g('data'), contraparte: g('contraparte'), pctAnimal: Number(g('pctAnimal')) || 100, valor: Number(g('valor')) || 0, comissaoPct: Number(g('comissaoPct')) || 0, intermediario: g('intermediario'), parcelas: Number(g('parcelas')) || 1, primeiroVenc: g('primeiroVenc') || g('data'), quitado: g('quitado'), participacoes: parts, obs: g('obs') };
+    if (mudouValor) delete o.parcelasLista; // valor/parcelas alterados: parcelas são recalculadas
     DB.upsert('negocios', o); lancarFinanceiro(o);
     // movimentação e situação do animal
+    if (!animalId) { m.remove(); render(); return; }
     const a = animal(animalId), restante = Object.values(composicao(animalId)).reduce((x, y) => x + y, 0);
     if (o.tipo === 'Compra' && !DB.list('movimentacoes').some(x => x.negocioId === o.id)) DB.upsert('movimentacoes', { animalId, tipo: 'Entrada', data: o.data, motivo: 'Compra', origemDestino: o.contraparte, negocioId: o.id });
     if (o.tipo === 'Venda' && restante <= 0.01) { DB.upsert('animais', { ...a, status: 'Vendido', aVenda: 'Não', dataSaida: o.data }); if (!DB.list('movimentacoes').some(x => x.negocioId === o.id)) DB.upsert('movimentacoes', { animalId, tipo: 'Saída', data: o.data, motivo: 'Venda', origemDestino: o.contraparte, negocioId: o.id }); }
@@ -581,13 +613,13 @@ V.negocios = () => {
   let body = '';
   if (tab === 'negocios') body = `<div class="kpis"><div class="kpi"><small>Compras em ${ano} (nossa parte)</small><b style="color:var(--bad)">${brl(tot('Compra'))}</b></div><div class="kpi"><small>Vendas em ${ano} (nossa parte, líquido)</small><b style="color:var(--ok)">${brl(tot('Venda'))}</b></div><div class="kpi"><small>Negócios em ${ano}</small><b>${doAno.length}</b></div></div>
     <div class="card">${table([
-      ['Data', n => fdate(n.data)], ['Tipo', n => `<span class="tag ${n.tipo === 'Venda' ? 'ok' : 'warn'}">${n.tipo}</span>`], ['Animal', n => `<b>${esc(aname(n.animalId))}</b>` + (Number(n.pctAnimal) !== 100 ? `<br><small class="muted">${pct(n.pctAnimal)} do animal</small>` : '')],
-      ['Comprador / vendedor', n => esc(n.contraparte)], ['Valor total', n => brl(n.valor) + (n.parcelas > 1 ? `<br><small class="muted">${n.parcelas}x de ${brl(n.valor / n.parcelas)}</small>` : '') + (n.comissaoPct ? `<br><small class="muted">comissão ${pct(n.comissaoPct)}</small>` : '')],
+      ['Data', n => fdate(n.data)], ['Tipo', n => `<span class="tag ${n.tipo === 'Venda' ? 'ok' : 'warn'}">${n.tipo}</span>`], ['Animal / produto', n => `<b>${esc(negLabel(n))}</b>` + (Number(n.pctAnimal) !== 100 ? `<br><small class="muted">${pct(n.pctAnimal)} do animal</small>` : '')],
+      ['Comprador / vendedor', n => esc(n.contraparte)], ['Valor total', n => brl(n.valor) + (n.parcelasLista ? `<br><small class="muted">${n.parcelasLista.length} parcela(s), ${n.parcelasLista.filter(q => q.pagoEm).length} paga(s)</small>` : n.parcelas > 1 ? `<br><small class="muted">${n.parcelas}x de ${brl(n.valor / n.parcelas)}</small>` : '') + (n.comissaoPct ? `<br><small class="muted">comissão ${pct(n.comissaoPct)}</small>` : '')],
       ['Sociedade', n => (n.participacoes || []).map(p => `<span class="tag" title="${brl((n.tipo === 'Venda' ? valorLiquido(n) : n.valor) * p.pct / 100)}">${esc(sname(p.socioId))} ${pct(p.pct)}</span>`).join(' ')],
       ['Nossa parte', n => `<b>${brl((n.tipo === 'Venda' ? valorLiquido(n) : Number(n.valor)) * minha(n) / 100)}</b>`],
     ], ns, n => `<button class="lnk" onclick="editNegocio('${n.id}')">Editar</button><button class="del" onclick="delNegocio('${n.id}')">Excluir</button>`)}</div>`;
   if (tab === 'animais') {
-    const ids = [...new Set(ns.map(n => n.animalId))];
+    const ids = [...new Set(ns.filter(n => n.animalId && (!n.produto || n.produto === 'Animal')).map(n => n.animalId))];
     const L = ids.map(id => { const a = animal(id) || { nome: '?' }; const N = ns.filter(n => n.animalId === id);
       const inv = N.filter(n => n.tipo === 'Compra').reduce((s, n) => s + Number(n.valor) * minha(n) / 100, 0), ven = N.filter(n => n.tipo === 'Venda').reduce((s, n) => s + valorLiquido(n) * minha(n) / 100, 0);
       const comp = composicao(id), nossa = eu ? (comp[eu.id] || 0) : 0;
