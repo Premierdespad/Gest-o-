@@ -23,15 +23,15 @@ window.verABCCMM = (id) => { const n = animal(id)?.nome || ''; navigator.clipboa
 
 // ---------- Perfis e permissões ----------
 const MODULOS = [
-  ['dashboard', 'Painel'], ['animais', 'Animais'], ['reproducao', 'Reprodução'], ['negocios', 'Compra e Venda'], ['sanidade', 'Sanidade'],
-  ['financeiro', 'Financeiro'], ['custos', 'Criação, Custos e Pensão'], ['estoque', 'Estoque'], ['relatorios', 'Relatórios'], ['site', 'Site do Haras'],
+  ['dashboard', 'Painel'], ['animais', 'Animais'], ['reproducao', 'Reprodução'], ['criacao', 'Criação'], ['pensao', 'Pensão'], ['sanidade', 'Sanidade'],
+  ['financeiro', 'Financeiro (manejo)'], ['estoque', 'Estoque'], ['relatorios', 'Relatórios'], ['site', 'Site do Haras'],
   ['usuarios', 'Usuários'], ['config', 'Configurações'],
 ];
 const PERFIS = {
   'Administrador': MODULOS.map(m => m[0]),
   'Veterinário': ['dashboard', 'animais', 'reproducao', 'sanidade', 'relatorios'],
   'Funcionário': ['dashboard', 'animais', 'sanidade', 'estoque'],
-  'Financeiro': ['dashboard', 'negocios', 'financeiro', 'custos', 'estoque', 'relatorios'],
+  'Financeiro': ['dashboard', 'criacao', 'pensao', 'financeiro', 'estoque', 'relatorios'],
 };
 function usuarioAtual() {
   const u = DB.get('usuarios', DB.data.config.usuarioAtual) || DB.list('usuarios')[0];
@@ -179,14 +179,14 @@ V.dashboard = () => {
   const proprios = ativos.filter(a => a.posse !== 'Pensão');
   return `<div class="kpis">
     <div class="kpi"><small>Animais ativos</small><b>${ativos.length}</b><small>${proprios.filter(a => a.sexo === 'Fêmea').length} éguas · ${proprios.filter(a => a.sexo !== 'Fêmea').length} machos · ${nAte2} até 2 anos</small></div>
-    ${pode('custos') ? `<div class="kpi" style="cursor:pointer" onclick="state.ctab='criacao';location.hash='custos'"><small>Patrimônio em animais (estimado)</small><b style="color:var(--ok)">${brl(patrimonio().total)}</b><small>nossa parte · ver detalhes</small></div>` : ''}
+    ${pode('criacao') ? `<div class="kpi" style="cursor:pointer" onclick="state.crTab='patrimonio';location.hash='criacao'"><small>Patrimônio em animais (estimado)</small><b style="color:var(--ok)">${brl(patrimonio().total)}</b><small>nossa parte · ver detalhes</small></div>` : ''}
     <div class="kpi"><small>À venda · receptoras</small><b>${ativos.filter(a => a.aVenda === 'Sim').length} · ${ativos.filter(a => a.categoria === 'Receptora').length}</b></div>
     <div class="kpi"><small>Éguas gestantes</small><b>${gest.length}</b></div>
     <div class="kpi"><small>Alertas sanitários (30d)</small><b>${alertas.length}</b></div>
-    ${pode('financeiro') ? `<div class="kpi"><small>Resultado do mês</small><b style="color:${rec - desp >= 0 ? 'var(--ok)' : 'var(--bad)'}">${brl(rec - desp)}</b></div>` : ''}
-    ${pode('custos') ? (() => { const C = calcCustos(mes + '-01', today()); const P = Object.entries(C).filter(([id]) => animal(id)?.posse === 'Pensão'); const r = P.reduce((s, [, c]) => s + c.receitas - c.diretos - c.rateio, 0); return `<div class="kpi"><small>Pensão: lucro/prejuízo no mês</small><b style="color:${r >= 0 ? 'var(--ok)' : 'var(--bad)'}">${brl(r)}</b><small>${P.length} cavalo(s) de pensão</small></div>`; })() : ''}
+    ${pode('financeiro') ? `<div class="kpi"><small>Resultado do mês (tudo)</small><b style="color:${rec - desp >= 0 ? 'var(--ok)' : 'var(--bad)'}">${brl(rec - desp)}</b></div>` : ''}
+    ${pode('pensao') ? (() => { const C = calcCustos(mes + '-01', today()); const P = Object.entries(C).filter(([id]) => animal(id)?.posse === 'Pensão'); const r = P.reduce((s, [, c]) => s + c.receitas - c.diretos - c.rateio, 0); return `<div class="kpi"><small>Pensão: lucro/prejuízo no mês</small><b style="color:${r >= 0 ? 'var(--ok)' : 'var(--bad)'}">${brl(r)}</b><small>${P.length} cavalo(s) de pensão</small></div>`; })() : ''}
   </div>
-  ${pode('financeiro') ? `<div class="kpis"><div class="kpi"><small>A receber em ${mes.slice(5)}/${mes.slice(0, 4)}</small><b style="color:var(--ok)">${brl(somaF(pendMes, 'Receita'))}</b></div><div class="kpi"><small>A pagar em ${mes.slice(5)}/${mes.slice(0, 4)}</small><b style="color:var(--bad)">${brl(somaF(pendMes, 'Despesa'))}</b></div><div class="kpi" style="cursor:pointer" onclick="location.hash='financeiro'"><small>Parcelas atrasadas</small><b style="color:${atrasadas.length ? 'var(--bad)' : 'inherit'}">${atrasadas.length}</b><small>${brl(somaF(atrasadas, 'Receita'))} a receber · ${brl(somaF(atrasadas, 'Despesa'))} a pagar</small></div></div>` : ''}
+  ${pode('financeiro') ? `<div class="kpis"><div class="kpi"><small>A receber em ${mes.slice(5)}/${mes.slice(0, 4)}</small><b style="color:var(--ok)">${brl(somaF(pendMes, 'Receita'))}</b></div><div class="kpi"><small>A pagar em ${mes.slice(5)}/${mes.slice(0, 4)}</small><b style="color:var(--bad)">${brl(somaF(pendMes, 'Despesa'))}</b></div><div class="kpi" style="cursor:pointer" onclick="state.crTab='agenda';state.agSit='atrasadas';location.hash='criacao'"><small>Parcelas atrasadas</small><b style="color:${atrasadas.length ? 'var(--bad)' : 'inherit'}">${atrasadas.length}</b><small>${brl(somaF(atrasadas, 'Receita'))} a receber · ${brl(somaF(atrasadas, 'Despesa'))} a pagar</small></div></div>` : ''}
   <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(320px,1fr))">
     <div class="card"><h3>Agenda sanitária</h3>${table([['Animal', s => esc(aname(s.animalId))], ['Tipo', s => esc(s.tipo)], ['Produto', s => esc(s.produto)], ['Quando', s => fdate(s.proxima) + ' ' + statusTag(daysUntil(s.proxima))]], alertas.slice(0, 8))}</div>
     <div class="card"><h3>Previsão de partos</h3>${table([['Égua', r => r.receptoraId ? `${esc(aname(r.receptoraId))} <span class="tag">receptora</span><br><small class="muted">embrião de ${esc(aname(r.eguaId))}</small>` : esc(aname(r.eguaId))], ['Garanhão', r => esc(aname(r.garanhaoId))], ['Previsão', r => fdate(r.prev) + ` <span class="muted">(${daysUntil(r.prev)}d)</span>`]], partos)}
@@ -335,17 +335,24 @@ window.aplicacaoLote = () => {
 };
 
 V.financeiro = () => {
-  const mes = state.finMes; const all = DB.list('financeiro');
+  const mes = state.finMes; const tudo = DB.list('financeiro'), all = tudo.filter(f => !f.negocioId); // compra e venda de animais fica na aba Criação
   const rows = all.filter(f => !mes || f.data.startsWith(mes)).sort((a, b) => b.data.localeCompare(a.data));
+  const negs = tudo.filter(f => f.negocioId && (!mes || f.data.startsWith(mes)));
   const sum = (arr, t) => arr.filter(f => f.tipo === t).reduce((s, f) => s + Number(f.valor), 0);
-  const rec = sum(rows, 'Receita'), desp = sum(rows, 'Despesa');
+  // custos do prontuário sanitário também são gasto do manejo (como no app antigo)
+  const sanCusto = DB.list('sanidade').filter(x => Number(x.custo) && (!mes || (x.data || '').startsWith(mes))).reduce((t, x) => t + Number(x.custo), 0);
+  const rec = sum(rows, 'Receita'), desp = sum(rows, 'Despesa') + sanCusto;
   const pend = all.filter(f => f.status === 'Pendente');
   const porCentro = {}; rows.forEach(f => { const c = f.centro || 'Sem centro'; porCentro[c] = porCentro[c] || { r: 0, d: 0 }; porCentro[c][f.tipo === 'Receita' ? 'r' : 'd'] += Number(f.valor); });
+  if (sanCusto) porCentro['Sanidade (lançada no prontuário)'] = { r: 0, d: sanCusto };
   const atras = all.filter(f => f.status === 'Pendente' && f.data < today()).sort((a, b) => a.data.localeCompare(b.data));
   return `${atras.length ? `<div class="card" style="border-color:var(--bad)"><h3>⚠️ Parcelas atrasadas (${atras.length})</h3>${table([['Vencimento', f => fdate(f.data) + ` <span class="tag bad">${-daysUntil(f.data)}d</span>`], ['Descrição', f => esc(f.descricao) + (f.contraparte ? `<br><small class="muted">${esc(f.contraparte)}</small>` : '')], ['Valor', f => `<b style="color:${f.tipo === 'Receita' ? 'var(--ok)' : 'var(--bad)'}">${f.tipo === 'Despesa' ? '-' : ''}${brl(f.valor)}</b>`]], atras.slice(0, 50), f => `<button class="lnk" onclick="baixar('${f.id}')">Baixar</button>`)}</div>` : ''}
   <div class="card row"><label style="margin:0">Período:</label><input type="month" value="${mes}" onchange="state.finMes=this.value;render()" style="max-width:180px"><button class="sec" onclick="state.finMes='';render()">Todo o período</button>
     <span class="muted">Centros de custo:</span> ${DB.data.centrosCusto.map(c => `<span class="tag">${esc(c)}</span>`).join(' ')} <button class="lnk" onclick="novoCentro()">+ centro</button></div>
-  <div class="kpis"><div class="kpi"><small>Receitas</small><b style="color:var(--ok)">${brl(rec)}</b></div><div class="kpi"><small>Despesas</small><b style="color:var(--bad)">${brl(desp)}</b></div><div class="kpi"><small>Resultado</small><b>${brl(rec - desp)}</b></div><div class="kpi"><small>Contas pendentes</small><b>${pend.length}</b><small>${brl(pend.reduce((s, f) => s + (f.tipo === 'Despesa' ? -1 : 1) * f.valor, 0))}</small></div></div>
+  <div class="kpis"><div class="kpi"><small>Receitas do manejo</small><b style="color:var(--ok)">${brl(rec)}</b><small>pensão, coberturas, serviços</small></div><div class="kpi"><small>Gastos do manejo</small><b style="color:var(--bad)">${brl(desp)}</b><small>alimentação, pessoal, sanidade...</small></div><div class="kpi"><small>Resultado do manejo</small><b>${brl(rec - desp)}</b></div><div class="kpi"><small>Contas pendentes</small><b>${pend.length}</b><small>${brl(pend.reduce((s, f) => s + (f.tipo === 'Despesa' ? -1 : 1) * f.valor, 0))}</small></div></div>
+  ${(() => { const nr = sum(negs, 'Receita'), nd = sum(negs, 'Despesa'), tot = rec - desp + nr - nd, cor = v => v >= 0 ? 'var(--ok)' : 'var(--bad)';
+    return `<div class="card"><h3>Resultado geral do haras ${mes ? 'em ' + mes.slice(5) + '/' + mes.slice(0, 4) : '(todo o período)'}</h3>${table([['', r => `<b>${r[0]}</b>`], ['Entradas', r => brl(r[1])], ['Saídas', r => brl(r[2])], ['Resultado', r => `<b style="color:${cor(r[1] - r[2])}">${brl(r[1] - r[2])}</b>`]],
+      [['Manejo (esta aba)', rec, desp], ['Compra e venda de animais (aba Criação)', nr, nd], ['TOTAL', rec + nr, desp + nd]])}<p class="muted">Compra e venda de animais é lançada e acompanhada na aba <a href="#criacao" onclick="state.crTab='agenda'">Criação</a>; aqui aparece só no total, pela data de cada parcela.</p></div>`; })()}
   <div class="card"><h3>Demonstrativo por centro de custo</h3>${table([['Centro', ([c]) => esc(c)], ['Receitas', ([, v]) => brl(v.r)], ['Despesas', ([, v]) => brl(v.d)], ['Resultado', ([, v]) => `<b style="color:${v.r - v.d >= 0 ? 'var(--ok)' : 'var(--bad)'}">${brl(v.r - v.d)}</b>`]], Object.entries(porCentro))}</div>
   <div class="card"><h3>Lançamentos</h3>${table([
     ['Data', f => fdate(f.data)], ['Descrição', f => esc(f.descricao) + (f.contraparte ? `<br><small class="muted">${esc(f.contraparte)}</small>` : '')], ['Centro', f => esc(f.centro)], ['Animal / rateio', f => f.animalId ? esc(aname(f.animalId)) : f.tipo === 'Despesa' ? `<small class="muted">${esc(f.rateio || 'Todos os animais')}</small>` : ''],
@@ -402,7 +409,7 @@ function calcCustos(ini, fim) {
 }
 const PERIODOS = { 'Mês atual': () => [today().slice(0, 7) + '-01', today()], 'Mês anterior': () => { const d = new Date(); d.setDate(0); const f = d.toISOString().slice(0, 10); return [f.slice(0, 8) + '01', f]; }, 'Últimos 3 meses': () => [today(-90), today()], 'Ano atual': () => [today().slice(0, 4) + '-01-01', today()], 'Últimos 12 meses': () => [today(-365), today()] };
 
-V.custos = () => {
+V.custos = (abas) => {
   if (!state.cIni) [state.cIni, state.cFim] = PERIODOS['Mês atual']();
   const ini = state.cIni, fim = state.cFim, C = calcCustos(ini, fim), tab = state.ctab || 'criacao';
   const meses = Math.max(diasPresente({ dataEntrada: ini }, ini, fim) / 30.44, 0.0001);
@@ -410,7 +417,7 @@ V.custos = () => {
   const res = (v) => `<b style="color:${v >= 0 ? 'var(--ok)' : 'var(--bad)'}">${brl(v)}</b>`;
   const head = `<div class="card row noprint"><label style="margin:0">Período</label><input type="date" value="${ini}" onchange="state.cIni=this.value;render()" style="max-width:160px"> até <input type="date" value="${fim}" onchange="state.cFim=this.value;render()" style="max-width:160px">
     ${Object.keys(PERIODOS).map(k => `<button class="sec" onclick="[state.cIni,state.cFim]=PERIODOS['${k}']();render()">${k}</button>`).join('')}</div>
-    <div class="tabs">${[['criacao', 'Criação: patrimônio e custos'], ['pensao', 'Pensão: custo × cobrado'], ['clientes', 'Por cliente'], ['geral', 'Visão geral']].map(([k, l]) => `<button class="${tab === k ? 'on' : ''}" onclick="state.ctab='${k}';render()">${l}</button>`).join('')}</div>`;
+    ${abas && abas.length > 1 ? `<div class="tabs">${abas.map(([k, l]) => `<button class="${tab === k ? 'on' : ''}" onclick="state.ctab='${k}';render()">${l}</button>`).join('')}</div>` : ''}`;
   let body = '';
   if (tab === 'pensao') {
     const L = linhas(a => a.posse === 'Pensão');
@@ -434,7 +441,7 @@ V.custos = () => {
     const L = linhas(a => a.posse !== 'Pensão');
     const tot = L.reduce((s, x) => s + x.custo, 0), rec = L.reduce((s, x) => s + x.receitas, 0);
     const porCat = {}; L.forEach(x => { const k = x.a.categoria || 'Sem categoria'; porCat[k] = porCat[k] || { n: 0, c: 0 }; porCat[k].n++; porCat[k].c += x.custo; });
-    body = blocoPatrimonio() + `<div class="kpis"><div class="kpi"><small>Animais de criação</small><b>${L.length}</b></div><div class="kpi"><small>Custo total no período</small><b style="color:var(--bad)">${brl(tot)}</b></div><div class="kpi"><small>Custo médio por animal/mês</small><b>${brl(tot / Math.max(L.length, 1) / meses)}</b></div><div class="kpi"><small>Receitas ligadas aos animais (coberturas etc.)</small><b style="color:var(--ok)">${brl(rec)}</b></div></div>
+    body = `<div class="kpis"><div class="kpi"><small>Animais de criação</small><b>${L.length}</b></div><div class="kpi"><small>Custo total no período</small><b style="color:var(--bad)">${brl(tot)}</b></div><div class="kpi"><small>Custo médio por animal/mês</small><b>${brl(tot / Math.max(L.length, 1) / meses)}</b></div><div class="kpi"><small>Receitas ligadas aos animais (coberturas etc.)</small><b style="color:var(--ok)">${brl(rec)}</b></div></div>
     <div class="card"><h3>Custo por categoria</h3>${table([['Categoria', ([k]) => esc(k)], ['Animais', ([, v]) => v.n], ['Custo no período', ([, v]) => brl(v.c)], ['Custo médio/animal/mês', ([, v]) => brl(v.c / v.n / meses)]], Object.entries(porCat))}</div>
     <div class="card"><h3>Custo por animal</h3>${table([
       ['Animal', x => `<a href="#" onclick="location.hash='animais';setTimeout(()=>{state.animalId='${x.a.id}';state.tab='financeiro';render()});return false"><b>${esc(x.a.nome)}</b></a>`], ['Categoria', x => esc(x.a.categoria)],
@@ -743,7 +750,7 @@ window.reabrirParcela = (id) => {
   render();
 };
 
-V.negocios = () => {
+V.negocios = (semAbas) => {
   const tab = state.ntab || 'negocios', eu = socioProprio();
   const ns = DB.list('negocios').slice().sort((a, b) => b.data.localeCompare(a.data));
   const minha = (n) => (n.participacoes || []).find(p => p.socioId === eu?.id)?.pct || 0;
@@ -763,7 +770,7 @@ V.negocios = () => {
       ['Comprador / vendedor', n => esc(n.contraparte)], ['Valor total', n => brl(n.valor) + (n.parcelasLista ? `<br><small class="muted">${n.parcelasLista.length} parcela(s), ${n.parcelasLista.filter(q => q.pagoEm).length} paga(s)</small>` : n.parcelas > 1 ? `<br><small class="muted">${n.parcelas}x de ${brl(n.valor / n.parcelas)}</small>` : '') + (n.comissaoPct ? `<br><small class="muted">comissão ${pct(n.comissaoPct)}</small>` : '')],
       ['Sociedade', n => (n.participacoes || []).map(p => `<span class="tag" title="${brl((n.tipo === 'Venda' ? valorLiquido(n) : n.valor) * p.pct / 100)}">${esc(sname(p.socioId))} ${pct(p.pct)}</span>`).join(' ')],
       ['Nossa parte', n => `<b>${brl((n.tipo === 'Venda' ? valorLiquido(n) : Number(n.valor)) * minha(n) / 100)}</b>`],
-    ], nsF, n => `<button class="lnk" onclick="state.ntab='agenda';state.agNeg='${n.id}';render()">Parcelas</button><button class="lnk" onclick="editNegocio('${n.id}')">Editar</button><button class="del" onclick="delNegocio('${n.id}')">Excluir</button>`)}</div>`;
+    ], nsF, n => `<button class="lnk" onclick="state.crTab='agenda';state.agNeg='${n.id}';render()">Parcelas</button><button class="lnk" onclick="editNegocio('${n.id}')">Editar</button><button class="del" onclick="delNegocio('${n.id}')">Excluir</button>`)}</div>`;
   if (tab === 'agenda') body = agendaParcelas();
   if (tab === 'animais') {
     const ids = [...new Set(ns.filter(n => n.animalId && (!n.produto || n.produto === 'Animal')).map(n => n.animalId))];
@@ -788,7 +795,23 @@ V.negocios = () => {
       ['Total investido', x => brl(x.inv)], ['Total recebido', x => brl(x.rec)], ['Saldo', x => `<b style="color:${x.rec - x.inv >= 0 ? 'var(--ok)' : 'var(--bad)'}">${brl(x.rec - x.inv)}</b>`],
     ], S, x => `<button class="lnk" onclick="novoSocio(null,'${x.s.id}')">Editar</button><button class="del" onclick="del('socios','${x.s.id}')">Excluir</button>`)}</div>`;
   }
-  return aviso + tabs + body;
+  return aviso + (semAbas ? '' : tabs) + body;
+};
+
+// ---------- Aba Criação: tudo dos animais de criação (patrimônio, compra e venda, parcelas, custos, sócios) ----------
+const ABAS_CRIACAO = [['patrimonio', '💎 Patrimônio'], ['negocios', 'Compras e vendas'], ['agenda', '📅 Agenda de parcelas'], ['custos', 'Custo por animal'], ['resultado', 'Resultado por animal'], ['socios', 'Sócios']];
+V.criacao = () => {
+  const t = state.crTab || 'patrimonio';
+  const abas = `<div class="tabs">${ABAS_CRIACAO.map(([k, l]) => `<button class="${t === k ? 'on' : ''}" onclick="state.crTab='${k}';state.agNeg=null;render()">${l}</button>`).join('')}</div>`;
+  let corpo;
+  if (t === 'patrimonio') corpo = blocoPatrimonio();
+  else if (t === 'custos') { state.ctab = 'criacao'; corpo = V.custos(); }
+  else { state.ntab = { negocios: 'negocios', agenda: 'agenda', resultado: 'animais', socios: 'socios' }[t]; corpo = V.negocios(true); }
+  return abas + corpo;
+};
+V.pensao = () => {
+  if (!['pensao', 'clientes'].includes(state.ctab)) state.ctab = 'pensao';
+  return V.custos([['pensao', 'Custo × valor cobrado'], ['clientes', 'Por cliente']]);
 };
 
 // ---------- Ações do topo por módulo ----------
@@ -797,14 +820,15 @@ const ACOES = {
   reproducao: () => `<button onclick="openForm('Nova cobertura / inseminação',F_REPRO,{dataCobertura:today(),resultadoDG:'Aguardando',status:'Coberta'},o=>DB.upsert('reproducao',o))">+ Nova cobertura</button>`,
   sanidade: () => `<button class="sec" onclick="aplicacaoLote()">Aplicação em lote</button><button onclick="openForm('Novo registro sanitário',F_SAN,{data:today()},o=>DB.upsert('sanidade',o))">+ Novo registro</button>`,
   financeiro: () => `<button onclick="openForm('Novo lançamento',F_FIN(),{data:today(),tipo:'Despesa',status:'Pago'},o=>DB.upsert('financeiro',o))">+ Novo lançamento</button>`,
-  custos: () => `<button class="sec" onclick="cobrarExtra()">Cobrar serviço extra</button><button onclick="gerarCobrancas()">Gerar cobranças de pensão do mês</button>`,
-  negocios: () => state.ntab === 'socios' ? `<button onclick="novoSocio(()=>{})">+ Novo sócio</button>` : `<button class="sec" onclick="editNegocio(null,'Venda')">+ Venda</button><button onclick="editNegocio(null,'Compra')">+ Compra</button>`,
+  pensao: () => `<button class="sec" onclick="cobrarExtra()">Cobrar serviço extra</button><button onclick="gerarCobrancas()">Gerar cobranças de pensão do mês</button>`,
+  criacao: () => (state.crTab || 'patrimonio') === 'patrimonio' || state.crTab === 'custos' ? '' : state.crTab === 'socios' ? `<button onclick="novoSocio(()=>{})">+ Novo sócio</button>` : `<button class="sec" onclick="editNegocio(null,'Venda')">+ Venda</button><button onclick="editNegocio(null,'Compra')">+ Compra</button>`,
   estoque: () => `<button onclick="openForm('Novo item',F_EST,{},o=>DB.upsert('estoque',o))">+ Novo item</button>`,
   relatorios: () => `<button onclick="window.print()">Imprimir</button>`,
   usuarios: () => `<button onclick="openForm('Novo usuário',F_USU,{perfil:'Funcionário',ativo:'Sim'},o=>DB.upsert('usuarios',o))">+ Novo usuário</button>`,
 };
 
 function render() {
+  if (state.view === 'negocios' || state.view === 'custos') state.view = 'criacao';
   if (!pode(state.view)) state.view = 'dashboard';
   const u = usuarioAtual();
   $('#nav').innerHTML = MODULOS.filter(([k]) => pode(k)).map(([k, l]) => `<a href="#${k}" class="${state.view === k ? 'on' : ''}">${l}</a>`).join('');
