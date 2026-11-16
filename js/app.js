@@ -597,7 +597,7 @@ window.editNegocio = (id, tipoPadrao, extra) => {
   const linhaGrupo = (g, i) => `<div class="row grp" style="margin-bottom:6px;flex-wrap:wrap"><input type="number" min="1" step="1" data-k="qtd" value="${g.qtd || 1}" style="max-width:80px" title="Nº de parcelas"> × <input type="number" step="any" data-k="valor" value="${g.valor ?? ''}" placeholder="valor de cada" style="max-width:150px"> <select data-k="forma" style="max-width:150px">${FORMAS.map(f => `<option ${f === g.forma ? 'selected' : ''}>${f}</option>`).join('')}</select> 1º venc. <input type="date" data-k="inicio" value="${g.inicio || today()}" style="max-width:170px">${i > 0 ? '<button type="button" class="del" onclick="this.parentNode.remove();window._negCalc()">✕</button>' : ''}</div>`;
   const m = document.createElement('div'); m.className = 'modal';
   const socOpts = (sel) => DB.list('socios').map(s => `<option value="${s.id}" ${s.id === sel ? 'selected' : ''}>${esc(s.nome)}</option>`).join('');
-  const linhaSoc = (p = {}) => `<div class="row soc" style="margin-bottom:6px"><select style="flex:2">${socOpts(p.socioId)}</select><input type="number" step="any" placeholder="%" value="${p.pct ?? ''}" style="flex:1;max-width:110px"><span class="muted vl" style="min-width:120px"></span><button type="button" class="del" onclick="this.parentNode.remove();window._negCalc()">✕</button></div>`;
+  const linhaSoc = (p = {}) => `<div class="row soc" style="margin-bottom:6px"><select style="flex:2">${socOpts(p.socioId)}</select><input type="number" step="any" placeholder="%" value="${p.pct ?? ''}" style="flex:1;max-width:110px"><span class="muted vl" style="min-width:230px;font-size:13px"></span><button type="button" class="del" onclick="this.parentNode.remove();window._negCalc()">✕</button></div>`;
   m.innerHTML = `<form class="box"><div class="top"><h3 style="margin:0">${id ? 'Editar' : 'Nova'} ${n.tipo === 'Venda' ? 'venda' : 'compra'}</h3><button type="button" class="sec" data-x>Fechar</button></div>
     <div class="grid">
       ${field({ k: 'tipo', l: 'Tipo', t: 'select', opts: ['Compra', 'Venda'], req: true }, n.tipo)}
@@ -615,6 +615,7 @@ window.editNegocio = (id, tipoPadrao, extra) => {
       ${field({ k: 'intermediario', l: 'Corretor / leilão' }, n.intermediario)}
       <div class="full"><label>Condições de pagamento (ex.: 1 × 15.000 PIX de entrada + 40 × 1.100 boleto)</label><div id="grupos">${planoIni.map(linhaGrupo).join('')}</div>
         <div class="row"><button type="button" class="sec" id="addGrupo">+ Condição</button><b id="totalPlano"></b></div>
+        <div class="card" id="resumoValor" style="margin:10px 0 0;padding:10px 12px;background:var(--bg)"></div><div class="row" style="display:none"></div>
         ${id ? (n.parcelasLista || []).some(q => q.pagoEm) ? '<p class="muted">Se mudar as condições, as parcelas são refeitas; as que já estão pagas continuam pagas.</p>' : '' : `<label style="margin-top:8px"><input type="checkbox" id="f_quitarVencidas" style="width:auto"> Marcar como pagas as parcelas já vencidas (para lançar negócios antigos)</label>`}</div>
       <div class="full"><label id="lb_soc">Sociedade (deve somar 100%)</label><p class="muted" id="ex_soc" style="margin:0 0 6px;font-size:13px"></p><div id="socs">${(n.participacoes.length ? n.participacoes : [{}]).map(linhaSoc).join('')}</div>
         <div class="row"><button type="button" class="sec" id="addSoc">+ Sócio</button><button type="button" class="lnk" onclick="novoSocio(()=>{})">Cadastrar novo sócio</button><b id="somaPct"></b></div>
@@ -630,7 +631,13 @@ window.editNegocio = (id, tipoPadrao, extra) => {
     const plano = lerPlano(), v = plano.reduce((t, g) => t + g.qtd * g.valor, 0), nq = plano.reduce((t, g) => t + g.qtd, 0);
     $('#totalPlano', m).textContent = ` Total: ${brl(v)} em ${nq} parcela(s)`;
     const liq = v * (1 - (Number($('#f_comissaoPct', m).value) || 0) / 100); let s = 0;
-    m.querySelectorAll('.soc').forEach(r => { const p = Number(r.querySelector('input').value) || 0; s += p; r.querySelector('.vl').textContent = brl(liq * p / 100); });
+    const pa = Number($('#f_pctAnimal', m).value) || 100, venda = $('#f_tipo', m).value === 'Venda';
+    m.querySelectorAll('.soc').forEach(r => { const p = Number(r.querySelector('input').value) || 0; s += p; r.querySelector('.vl').textContent = `${venda ? 'recebe' : 'paga'} ${brl(liq * p / 100)} · ${venda ? 'vende' : 'fica com'} ${pct(pa * p / 100)} do animal`; });
+    // resumo: valor do negócio x valor do animal inteiro
+    const inteiro = pa > 0 ? v / pa * 100 : 0, aSel = animal($('#f_animalId', m).value), prodA = $('#f_produto', m).value === 'Animal';
+    $('#resumoValor', m).style.display = prodA && v ? '' : 'none';
+    $('#resumoValor', m).innerHTML = prodA && v ? `<b>${brl(v)}</b> por <b>${pct(pa)} do animal</b>${pa < 100 ? ` → o animal inteiro vale <b style="color:var(--ok)">${brl(inteiro)}</b>` : ''}${Number($('#f_comissaoPct', m).value) ? ` · líquido após comissão: ${brl(liq)}` : ''}
+      ${aSel && Math.round(inteiro) !== Math.round(Number(aSel.valorEstimado) || 0) ? `<br><small class="muted">Valor estimado no cadastro de ${esc(aSel.nome)}: ${aSel.valorEstimado ? brl(aSel.valorEstimado) : 'não informado'}.</small> <button type="button" class="lnk" id="usarValor" data-v="${Math.round(inteiro)}">usar ${brl(Math.round(inteiro))} como valor estimado</button>` : ''}` : '';
     $('#somaPct', m).innerHTML = ` Soma: <span style="color:${Math.abs(s - 100) < 0.01 ? 'var(--ok)' : 'var(--bad)'}">${pct(s)}</span>`;
     const aid = $('#f_animalId', m).value, isVenda = $('#f_tipo', m).value === 'Venda';
     $('#lb_soc', m).textContent = isVenda ? 'Quem está VENDENDO — de quem sai a parte e quem recebe o dinheiro (deve somar 100%)' : 'Quem está COMPRANDO — quem paga e fica com a parte comprada (deve somar 100%)';
@@ -642,7 +649,8 @@ window.editNegocio = (id, tipoPadrao, extra) => {
     ['doadoraId', 'garanhaoId', 'quantidade'].forEach(k => $('#f_' + k, m).parentNode.style.display = prodAnimal ? 'none' : '');
     $('#f_animalId', m).parentNode.style.display = prodAnimal ? '' : 'none';
     let html = '';
-    if (isVenda && aid) { const c = composicao(aid); html = 'Composição atual do animal: ' + (Object.entries(c).map(([k, v]) => `${esc(sname(k))} ${pct(v)}`).join(' · ') || 'sem sociedade registrada') + (Object.keys(c).length ? ` <button type="button" class="lnk" id="usarComp">usar esta divisão</button>` : ''); }
+    if (isVenda && aid) { const c = composicao(aid), txt = Object.entries(c).map(([k, v]) => `${esc(sname(k))} ${pct(v)}`).join(' · ') || 'sem sociedade registrada';
+      html = id ? `Donos do animal hoje (já contando esta venda): ${txt}` : 'Donos do animal hoje: ' + txt + (Object.keys(c).length ? ` <button type="button" class="lnk" id="usarComp">preencher vendedores com estes donos</button>` : ''); }
     if ($('#sugestao', m).innerHTML !== html) $('#sugestao', m).innerHTML = html;
   };
   const usarComp = () => {
@@ -650,7 +658,10 @@ window.editNegocio = (id, tipoPadrao, extra) => {
     $('#socs', m).innerHTML = Object.entries(c).map(([k, v]) => linhaSoc({ socioId: k, pct: Math.round(v / tot * 10000) / 100 })).join('');
     $('#f_pctAnimal', m).value = Math.round(tot * 100) / 100; window._negCalc();
   };
-  m.addEventListener('click', e => { if (e.target.id === 'usarComp') usarComp(); });
+  m.addEventListener('click', e => {
+    if (e.target.id === 'usarComp') usarComp();
+    if (e.target.id === 'usarValor') { const a = animal($('#f_animalId', m).value); if (a) { DB.upsert('animais', { ...a, valorEstimado: Number(e.target.dataset.v) }); e.target.outerHTML = '<small style="color:var(--ok)">✓ valor estimado atualizado</small>'; } }
+  });
   $('#f_contraparteSocioId', m).addEventListener('change', (ev) => { const sc = socio(ev.target.value); if (sc && !$('#f_contraparte', m).value) $('#f_contraparte', m).value = sc.nome; });
   // numa venda nova, ao escolher o animal já preenche a divisão pela composição atual
   $('#f_animalId', m).addEventListener('change', () => { if (!id && $('#f_tipo', m).value === 'Venda') usarComp(); });
