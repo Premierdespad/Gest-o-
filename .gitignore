@@ -1,3 +1,4 @@
 backups/
 *.db
 __pycache__/
+js/dados-iniciais.js

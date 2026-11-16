@@ -24,7 +24,7 @@ window.verABCCMM = (id) => { const n = animal(id)?.nome || ''; navigator.clipboa
 // ---------- Perfis e permissões ----------
 const MODULOS = [
   ['dashboard', 'Painel'], ['animais', 'Animais'], ['reproducao', 'Reprodução'], ['negocios', 'Compra e Venda'], ['sanidade', 'Sanidade'],
-  ['financeiro', 'Financeiro'], ['custos', 'Custos e Pensão'], ['estoque', 'Estoque'], ['relatorios', 'Relatórios'], ['site', 'Site do Haras'],
+  ['financeiro', 'Financeiro'], ['custos', 'Criação, Custos e Pensão'], ['estoque', 'Estoque'], ['relatorios', 'Relatórios'], ['site', 'Site do Haras'],
   ['usuarios', 'Usuários'], ['config', 'Configurações'],
 ];
 const PERFIS = {
@@ -179,6 +179,7 @@ V.dashboard = () => {
   const proprios = ativos.filter(a => a.posse !== 'Pensão');
   return `<div class="kpis">
     <div class="kpi"><small>Animais ativos</small><b>${ativos.length}</b><small>${proprios.filter(a => a.sexo === 'Fêmea').length} éguas · ${proprios.filter(a => a.sexo !== 'Fêmea').length} machos · ${nAte2} até 2 anos</small></div>
+    ${pode('custos') ? `<div class="kpi" style="cursor:pointer" onclick="state.ctab='criacao';location.hash='custos'"><small>Patrimônio em animais (estimado)</small><b style="color:var(--ok)">${brl(patrimonio().total)}</b><small>nossa parte · ver detalhes</small></div>` : ''}
     <div class="kpi"><small>À venda · receptoras</small><b>${ativos.filter(a => a.aVenda === 'Sim').length} · ${ativos.filter(a => a.categoria === 'Receptora').length}</b></div>
     <div class="kpi"><small>Éguas gestantes</small><b>${gest.length}</b></div>
     <div class="kpi"><small>Alertas sanitários (30d)</small><b>${alertas.length}</b></div>
@@ -401,13 +402,13 @@ const PERIODOS = { 'Mês atual': () => [today().slice(0, 7) + '-01', today()], '
 
 V.custos = () => {
   if (!state.cIni) [state.cIni, state.cFim] = PERIODOS['Mês atual']();
-  const ini = state.cIni, fim = state.cFim, C = calcCustos(ini, fim), tab = state.ctab || 'pensao';
+  const ini = state.cIni, fim = state.cFim, C = calcCustos(ini, fim), tab = state.ctab || 'criacao';
   const meses = Math.max(diasPresente({ dataEntrada: ini }, ini, fim) / 30.44, 0.0001);
   const linhas = (filtro) => Object.entries(C).map(([id, c]) => ({ a: animal(id), ...c, custo: c.diretos + c.rateio })).filter(x => x.a && filtro(x.a));
   const res = (v) => `<b style="color:${v >= 0 ? 'var(--ok)' : 'var(--bad)'}">${brl(v)}</b>`;
   const head = `<div class="card row noprint"><label style="margin:0">Período</label><input type="date" value="${ini}" onchange="state.cIni=this.value;render()" style="max-width:160px"> até <input type="date" value="${fim}" onchange="state.cFim=this.value;render()" style="max-width:160px">
     ${Object.keys(PERIODOS).map(k => `<button class="sec" onclick="[state.cIni,state.cFim]=PERIODOS['${k}']();render()">${k}</button>`).join('')}</div>
-    <div class="tabs">${[['pensao', 'Pensão: custo × cobrado'], ['clientes', 'Por cliente'], ['criacao', 'Criação: custo dos meus animais'], ['geral', 'Visão geral']].map(([k, l]) => `<button class="${tab === k ? 'on' : ''}" onclick="state.ctab='${k}';render()">${l}</button>`).join('')}</div>`;
+    <div class="tabs">${[['criacao', 'Criação: patrimônio e custos'], ['pensao', 'Pensão: custo × cobrado'], ['clientes', 'Por cliente'], ['geral', 'Visão geral']].map(([k, l]) => `<button class="${tab === k ? 'on' : ''}" onclick="state.ctab='${k}';render()">${l}</button>`).join('')}</div>`;
   let body = '';
   if (tab === 'pensao') {
     const L = linhas(a => a.posse === 'Pensão');
@@ -431,7 +432,7 @@ V.custos = () => {
     const L = linhas(a => a.posse !== 'Pensão');
     const tot = L.reduce((s, x) => s + x.custo, 0), rec = L.reduce((s, x) => s + x.receitas, 0);
     const porCat = {}; L.forEach(x => { const k = x.a.categoria || 'Sem categoria'; porCat[k] = porCat[k] || { n: 0, c: 0 }; porCat[k].n++; porCat[k].c += x.custo; });
-    body = `<div class="kpis"><div class="kpi"><small>Animais de criação</small><b>${L.length}</b></div><div class="kpi"><small>Custo total no período</small><b style="color:var(--bad)">${brl(tot)}</b></div><div class="kpi"><small>Custo médio por animal/mês</small><b>${brl(tot / Math.max(L.length, 1) / meses)}</b></div><div class="kpi"><small>Receitas ligadas aos animais (coberturas etc.)</small><b style="color:var(--ok)">${brl(rec)}</b></div></div>
+    body = blocoPatrimonio() + `<div class="kpis"><div class="kpi"><small>Animais de criação</small><b>${L.length}</b></div><div class="kpi"><small>Custo total no período</small><b style="color:var(--bad)">${brl(tot)}</b></div><div class="kpi"><small>Custo médio por animal/mês</small><b>${brl(tot / Math.max(L.length, 1) / meses)}</b></div><div class="kpi"><small>Receitas ligadas aos animais (coberturas etc.)</small><b style="color:var(--ok)">${brl(rec)}</b></div></div>
     <div class="card"><h3>Custo por categoria</h3>${table([['Categoria', ([k]) => esc(k)], ['Animais', ([, v]) => v.n], ['Custo no período', ([, v]) => brl(v.c)], ['Custo médio/animal/mês', ([, v]) => brl(v.c / v.n / meses)]], Object.entries(porCat))}</div>
     <div class="card"><h3>Custo por animal</h3>${table([
       ['Animal', x => `<a href="#" onclick="location.hash='animais';setTimeout(()=>{state.animalId='${x.a.id}';state.tab='financeiro';render()});return false"><b>${esc(x.a.nome)}</b></a>`], ['Categoria', x => esc(x.a.categoria)],
@@ -470,6 +471,39 @@ window.cobrarExtra = () => openForm('Cobrar serviço extra do proprietário', [
     if (o.custo) DB.upsert('financeiro', { tipo: 'Despesa', data: o.data, descricao: o.descricao + ' - ' + a.nome, valor: o.custo, centro: 'Pensão', animalId: a.id, status: 'Pago' });
     DB.upsert('financeiro', { tipo: 'Receita', data: o.data, descricao: 'Extra: ' + o.descricao + ' - ' + a.nome, valor: o.valor, centro: 'Pensão', animalId: a.id, contraparte: a.proprietario, status: 'Pendente' });
   });
+
+// ---------- Patrimônio: valor estimado dos animais de criação (só a nossa parte) ----------
+function patrimonio() {
+  const eu = socioProprio();
+  const L = DB.list('animais').filter(a => a.status === 'Ativo' && a.posse !== 'Pensão').map(a => {
+    const nossa = eu ? (composicao(a.id)[eu.id] ?? 0) : 100;
+    const compra = DB.list('negocios').filter(n => n.animalId === a.id && n.tipo === 'Compra' && (!n.produto || n.produto === 'Animal')).reduce((t, n) => t + Number(n.valor) * ((n.participacoes || []).find(p => p.socioId === eu?.id)?.pct ?? 100) / 100, 0);
+    const v = Number(a.valorEstimado) || 0;
+    return { a, nossa: Math.max(nossa, 0), valor: v, parte: v * Math.max(nossa, 0) / 100, compra };
+  }).filter(x => x.nossa > 0.001);
+  const total = L.reduce((t, x) => t + x.parte, 0), invest = L.reduce((t, x) => t + x.compra, 0);
+  return { L, total, invest, semValor: L.filter(x => !x.valor) };
+}
+window.editarValor = (id) => {
+  const a = animal(id), v = prompt(`Valor estimado de ${a.nome} (animal inteiro, em R$):`, a.valorEstimado || '');
+  if (v === null) return; const n = Number(String(v).replace(/\./g, '').replace(',', '.'));
+  if (isNaN(n)) return alert('Valor inválido.'); DB.upsert('animais', { ...a, valorEstimado: n || '' }); render();
+};
+function blocoPatrimonio() {
+  const P = patrimonio(), porCat = {};
+  P.L.forEach(x => { const k = x.a.categoria || 'Sem categoria'; porCat[k] = porCat[k] || { n: 0, v: 0 }; porCat[k].n++; porCat[k].v += x.parte; });
+  return `<div class="card" style="border-color:var(--brand2)"><h3>💎 Patrimônio em animais de criação (estimativa)</h3>
+    <div class="kpis"><div class="kpi"><small>Valor estimado total (nossa parte)</small><b style="color:var(--ok)">${brl(P.total)}</b><small>${P.L.length} animais</small></div>
+      <div class="kpi"><small>Investido na compra (nossa parte)</small><b>${brl(P.invest)}</b></div>
+      <div class="kpi"><small>Animais sem valor estimado</small><b style="color:${P.semValor.length ? 'var(--warn)' : 'inherit'}">${P.semValor.length}</b><small>${P.semValor.length ? 'preencha para a estimativa ficar completa' : 'todos avaliados'}</small></div></div>
+    ${table([['Categoria', ([k]) => esc(k)], ['Animais', ([, v]) => v.n], ['Valor (nossa parte)', ([, v]) => brl(v.v)], ['% do total', ([, v]) => P.total ? Math.round(v.v / P.total * 100) + '%' : '—']], Object.entries(porCat).sort((a, b) => b[1].v - a[1].v))}
+    <details style="margin-top:10px"><summary style="cursor:pointer"><b>Ver animal por animal</b></summary>${table([
+      ['Animal', x => `<b>${esc(x.a.nome)}</b><br><small class="muted">${esc(x.a.categoria || '')}${x.a.nascimento ? ' · ' + idade(x.a.nascimento) : ''}</small>`],
+      ['Valor estimado', x => x.valor ? brl(x.valor) : '<span class="tag warn">sem valor</span>'], ['Nossa %', x => pct(x.nossa)], ['Nossa parte', x => `<b>${brl(x.parte)}</b>`],
+      ['Compra', x => x.compra ? brl(x.compra) : '—'], ['Valorização', x => x.compra && x.valor ? (() => { const d = x.parte - x.compra; return `<span style="color:${d >= 0 ? 'var(--ok)' : 'var(--bad)'}">${d >= 0 ? '+' : ''}${brl(d)}</span>`; })() : '—'],
+    ], P.L.sort((a, b) => b.parte - a.parte), x => `<button class="lnk" onclick="editarValor('${x.a.id}')">Alterar valor</button>`)}</details>
+    <p class="muted">Soma do <b>valor atual estimado</b> de cada animal ativo de criação (cadastro do animal), multiplicado pela participação do haras. Animais de pensão não entram.</p></div>`;
+}
 
 V.estoque = () => `<div class="card">${table([
   ['Item', e => esc(e.item)], ['Categoria', e => esc(e.categoria)], ['Quantidade', e => `${e.quantidade} ${esc(e.unidade || '')}` + (Number(e.quantidade) <= Number(e.minimo) ? ' <span class="tag bad">Baixo</span>' : '')],

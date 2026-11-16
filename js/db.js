@@ -5,6 +5,12 @@ const DB = {
   data: null,
   load() {
     try { this.data = JSON.parse(localStorage.getItem(DB_KEY)); } catch (e) { this.data = null; }
+    // Dados iniciais do haras (arquivo opcional js/dados-iniciais.js, fora do repositório): substituem o exemplo
+    const ini = window.DADOS_INICIAIS;
+    if (ini && ini.config?.dadosIniciais && this.data?.config?.dadosIniciais !== ini.config.dadosIniciais) {
+      const soExemploOuImportado = !this.data || this.data.config?.haras === 'Haras Vale Dourado' || !(this.data.animais || []).some(a => !a.importado && a.status !== 'Externo');
+      if (soExemploOuImportado) { this.data = JSON.parse(JSON.stringify(ini)); this.save(); }
+    }
     if (!this.data) { this.data = seed(); this.save(); }
     // migração de versões anteriores
     (this.data.animais || []).forEach(a => { a.posse = a.posse || 'Próprio'; if (!a.pesoRateio) a.pesoRateio = 1; });
