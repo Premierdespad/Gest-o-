@@ -153,7 +153,7 @@ async function iniciarNuvem() {
 window.enviarParaNuvem = async () => {
   if (!NUVEM.db || NUVEM.iniciado) return;
   const n = (c) => DB.list(c).length;
-  if (!confirm(`Enviar os dados DESTE navegador para a nuvem?\n\n${n('animais')} animais · ${n('reproducao')} coberturas · ${n('negocios')} compras/vendas · ${n('financeiro')} lançamentos · ${n('anexos')} anexos\n\nFaça isso no aparelho onde você fez os lançamentos. Depois, todos os aparelhos passam a usar estes dados.`)) return;
+  if (!(await confirmar(`Enviar os dados DESTE navegador para a nuvem?\n\n${DB.list('animais').filter(a => a.status !== 'Externo').length} animais · ${n('reproducao')} coberturas · ${n('negocios')} compras/vendas · ${n('financeiro')} lançamentos · ${n('anexos')} anexos\n\nFaça isso no aparelho onde você fez os lançamentos. Depois, todos os aparelhos passam a usar estes dados.`, 'Enviar'))) return;
   const msg = (t) => { const el = document.getElementById('nuvemMsg'); if (el) el.textContent = t; indicadorNuvem(t); };
   try {
     // 1) anexos guardados no navegador -> armazenamento de arquivos do link

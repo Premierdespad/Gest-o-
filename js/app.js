@@ -97,7 +97,7 @@ function table(cols, rows, actions) {
     ${rows.map(r => `<tr>${cols.map(c => `<td>${c[1](r)}</td>`).join('')}${actions ? `<td class="right" style="white-space:nowrap">${actions(r)}</td>` : ''}</tr>`).join('')}
   </tbody></table></div>`;
 }
-const del = (col, id) => { if (confirm('Excluir este registro?')) { DB.remove(col, id); render(); } };
+const del = async (col, id) => { if (await confirmar('Excluir este registro?', 'Excluir', true)) { DB.remove(col, id); render(); } };
 const statusTag = (dias) => dias < 0 ? `<span class="tag bad">Vencido há ${-dias}d</span>` : dias <= 15 ? `<span class="tag warn">Em ${dias}d</span>` : `<span class="tag ok">Em ${dias}d</span>`;
 
 // ---------- Definições dos cadastros ----------
@@ -367,7 +367,7 @@ window.baixar = (id) => {
   if (n && n.parcelasLista && n.parcelasLista[f.parcelaIdx]) { n.parcelasLista[f.parcelaIdx].pagoEm = today(); DB.upsert('negocios', n); }
   render();
 };
-window.novoCentro = () => { const n = prompt('Nome do novo centro de custo:'); if (n && !DB.data.centrosCusto.includes(n)) { DB.data.centrosCusto.push(n); DB.save(); render(); } };
+window.novoCentro = async () => { const n = await perguntar('Nome do novo centro de custo:'); if (n && !DB.data.centrosCusto.includes(n)) { DB.data.centrosCusto.push(n); DB.save(); render(); } };
 
 
 // ---------- Motor de custos: diretos + rateio de custos gerais ----------
@@ -464,12 +464,12 @@ V.custos = (abas) => {
   }
   return head + body;
 };
-window.gerarCobrancas = () => {
+window.gerarCobrancas = async () => {
   const mes = today().slice(0, 7); const P = DB.list('animais').filter(a => a.posse === 'Pensão' && presente(a, today()) && Number(a.valorPensao));
   const ja = new Set(DB.list('financeiro').filter(f => f.centro === 'Pensão' && f.tipo === 'Receita' && f.data.startsWith(mes) && /^Pensão/.test(f.descricao)).map(f => f.animalId));
   const novos = P.filter(a => !ja.has(a.id));
   if (!novos.length) return alert('Todas as pensões deste mês já foram lançadas.');
-  if (!confirm(`Gerar ${novos.length} cobrança(s) de pensão de ${mes.slice(5)}/${mes.slice(0, 4)}?`)) return;
+  if (!(await confirmar(`Gerar ${novos.length} cobrança(s) de pensão de ${mes.slice(5)}/${mes.slice(0, 4)}?`, 'Gerar'))) return;
   novos.forEach(a => DB.upsert('financeiro', { tipo: 'Receita', data: today(), descricao: 'Pensão - ' + a.nome, valor: Number(a.valorPensao), centro: 'Pensão', animalId: a.id, contraparte: a.proprietario, status: 'Pendente' }));
   render();
 };
@@ -494,8 +494,8 @@ function patrimonio() {
   const total = L.reduce((t, x) => t + x.parte, 0), invest = L.reduce((t, x) => t + x.compra, 0);
   return { L, total, invest, semValor: L.filter(x => !x.valor) };
 }
-window.editarValor = (id) => {
-  const a = animal(id), v = prompt(`Valor estimado de ${a.nome} (animal inteiro, em R$):`, a.valorEstimado || '');
+window.editarValor = async (id) => {
+  const a = animal(id), v = await perguntar(`Valor estimado de ${a.nome} (animal inteiro, em R$):`, a.valorEstimado || '');
   if (v === null) return; const n = Number(String(v).replace(/\./g, '').replace(',', '.'));
   if (isNaN(n)) return alert('Valor inválido.'); DB.upsert('animais', { ...a, valorEstimado: n || '' }); render();
 };
@@ -519,10 +519,10 @@ V.estoque = () => `<div class="card">${table([
   ['Item', e => esc(e.item)], ['Categoria', e => esc(e.categoria)], ['Quantidade', e => `${e.quantidade} ${esc(e.unidade || '')}` + (Number(e.quantidade) <= Number(e.minimo) ? ' <span class="tag bad">Baixo</span>' : '')],
   ['Mínimo', e => e.minimo ?? ''], ['Custo unit.', e => e.custoUnit ? brl(e.custoUnit) : ''], ['Valor em estoque', e => brl(e.quantidade * (e.custoUnit || 0))], ['Validade', e => e.validade ? fdate(e.validade) : ''],
 ], DB.list('estoque'), e => `<button class="lnk" onclick="movEstoque('${e.id}',1)">+ Entrada</button><button class="lnk" onclick="movEstoque('${e.id}',-1)">− Saída</button><button class="lnk" onclick="openForm('Editar item',F_EST,DB.get('estoque','${e.id}'),o=>DB.upsert('estoque',o))">Editar</button><button class="del" onclick="del('estoque','${e.id}')">Excluir</button>`)}</div>`;
-window.movEstoque = (id, sinal) => {
-  const e = DB.get('estoque', id); const q = Number(prompt(`${sinal > 0 ? 'Entrada' : 'Saída'} de ${e.item} — quantidade:`)); if (!q) return;
+window.movEstoque = async (id, sinal) => {
+  const e = DB.get('estoque', id); const q = Number(String(await perguntar(`${sinal > 0 ? 'Entrada' : 'Saída'} de ${e.item} — quantidade:`) || '').replace(',', '.')); if (!q) return;
   DB.upsert('estoque', { ...e, quantidade: Number(e.quantidade) + sinal * q });
-  if (sinal > 0 && e.custoUnit && confirm('Lançar a compra como despesa no financeiro?')) DB.upsert('financeiro', { tipo: 'Despesa', data: today(), descricao: `Compra: ${q} ${e.unidade || ''} ${e.item}`, valor: q * e.custoUnit, centro: e.categoria === 'Medicamento' ? 'Sanidade' : 'Alimentação', status: 'Pago' });
+  if (sinal > 0 && e.custoUnit && await confirmar('Lançar a compra como despesa no financeiro?', 'Lançar')) DB.upsert('financeiro', { tipo: 'Despesa', data: today(), descricao: `Compra: ${q} ${e.unidade || ''} ${e.item}`, valor: q * e.custoUnit, centro: e.categoria === 'Medicamento' ? 'Sanidade' : 'Alimentação', status: 'Pago' });
   render();
 };
 
@@ -566,7 +566,11 @@ V.config = () => `${typeof cartaoNuvem === 'function' ? cartaoNuvem() : ''}<div 
   <label class="btn sec" style="margin:0;color:var(--ink);font-size:14px">Importar backup<input type="file" accept=".json" hidden onchange="importar(this.files[0])"></label></div></div>
   <div class="card"><h3>Importar do sistema anterior (arquivo .db)</h3><p class="muted">Envie o backup do app de controle de criação (arquivo <b>.db</b>). Animais, coberturas, sanidade, compras/vendas e parcelas são trazidos. Pode importar de novo sempre que quiser: os registros já importados são <b>atualizados</b>, sem duplicar.</p>
   <label class="btn" style="margin:0;color:#fff;font-size:14px">Escolher arquivo .db<input type="file" accept=".db,.sqlite,.sqlite3" hidden onchange="importarDb(this.files[0])"></label> <span id="impStatus" class="muted"></span></div>
-  <div class="card"><h3>Zona de risco</h3><div class="row"><button class="sec" onclick="if(confirm('Recarregar dados de demonstração? Os dados atuais serão perdidos.')){DB.reset();render()}">Restaurar dados de demonstração</button><button class="sec" style="color:var(--bad)" onclick="if(confirm('Apagar TODOS os dados?')){DB.clear();render()}">Começar do zero</button></div></div>`;
+  ${typeof NUVEM !== 'undefined' && NUVEM.ativo ? '' : `<div class="card"><h3>Zona de risco</h3><div class="row"><button class="sec" onclick="zonaRisco('demo')">Restaurar dados de demonstração</button><button class="sec" style="color:var(--bad)" onclick="zonaRisco('zero')">Começar do zero</button></div></div>`}`;
+window.zonaRisco = async (q) => {
+  if (q === 'demo' && await confirmar('Recarregar dados de demonstração? Os dados atuais serão perdidos.', 'Recarregar', true)) { DB.reset(); render(); }
+  if (q === 'zero' && await confirmar('Apagar TODOS os dados deste navegador?', 'Apagar tudo', true)) { DB.clear(); render(); }
+};
 window.importar = (f) => { const r = new FileReader(); r.onload = async () => { let d; try { d = JSON.parse(r.result); } catch (e) { return alert('Arquivo inválido.'); } const n = await restaurarArquivos(d); DB.data = d; DB.data.anexos = DB.data.anexos || []; DB.save(); alert('Backup importado!' + (n ? ` ${n} anexo(s) restaurado(s).` : '')); render(); }; r.readAsText(f); };
 
 // ---------- Compra e Venda com sociedade ----------
@@ -707,7 +711,7 @@ window.editNegocio = (id, tipoPadrao, extra) => {
 };
 window.novoSocio = (cb, id) => openForm(id ? 'Editar sócio' : 'Novo sócio', [{ k: 'nome', l: 'Nome', req: true }, { k: 'telefone', l: 'Telefone' }, { k: 'documento', l: 'CPF / CNPJ' }, { k: 'proprio', l: 'É o próprio haras (nós)?', t: 'select', opts: ['Não', 'Sim'] }, { k: 'obs', l: 'Observações', t: 'textarea', full: true }],
   id ? socio(id) : { proprio: 'Não' }, o => { if (o.proprio === 'Sim') DB.list('socios').forEach(s => { if (s.id !== o.id) s.proprio = 'Não'; }); DB.upsert('socios', o); DB.list('negocios').forEach(lancarFinanceiro); cb && cb(); });
-window.delNegocio = (id) => { if (!confirm('Excluir este negócio e seus lançamentos financeiros?')) return; DB.data.financeiro = DB.list('financeiro').filter(f => f.negocioId !== id); DB.data.movimentacoes = DB.list('movimentacoes').filter(f => f.negocioId !== id); DB.remove('negocios', id); render(); };
+window.delNegocio = async (id) => { if (!(await confirmar('Excluir este negócio e seus lançamentos financeiros?', 'Excluir', true))) return; DB.data.financeiro = DB.list('financeiro').filter(f => f.negocioId !== id); DB.data.movimentacoes = DB.list('movimentacoes').filter(f => f.negocioId !== id); DB.remove('negocios', id); render(); };
 
 // ---------- Agenda de parcelas (fluxo de caixa de compra e venda, pela nossa parte) ----------
 function agendaParcelas() {

@@ -125,7 +125,7 @@ window.editarAnexo = (id) => {
   m.querySelector('form').onsubmit = (e) => { e.preventDefault(); DB.upsert('anexos', { ...x, ...lerCamposAnexo(m) }); m.remove(); render(); };
 };
 window.excluirAnexo = async (id) => {
-  const x = DB.get('anexos', id); if (!confirm(`Excluir o anexo "${x.nome}"? Isso não pode ser desfeito.`)) return;
+  const x = DB.get('anexos', id); if (!(await confirmar(`Excluir o anexo "${x.nome}"? Isso não pode ser desfeito.`, 'Excluir', true))) return;
   try { await apagarArquivo(id); } catch (e) { /* arquivo já não existia */ }
   DB.remove('anexos', id); render();
 };
