@@ -71,7 +71,8 @@ function openForm(title, fields, obj, onSave) {
       if (f.t === 'file') { if (el.files[0]) out[f.k] = await resizeImage(el.files[0]); }
       else out[f.k] = f.t === 'number' ? (el.value === '' ? '' : Number(el.value)) : el.value;
     }
-    onSave(out); m.remove(); render();
+    if ((await onSave(out)) === false) return;
+    m.remove(); render();
   };
 }
 
@@ -225,10 +226,14 @@ V.animais = () => {
   if (state.animalId) return V.animal();
   const fs = state.fAnimais || 'ativos';
   return `<div class="card"><div class="row" style="margin-bottom:12px"><input id="buscaAnimais" type="search" placeholder="Buscar por nome, registro, raça, pelagem..." value="${esc(state.filtro)}" oninput="buscarAnimais(this.value)" autocomplete="off" style="max-width:380px">
-    <select onchange="state.fAnimais=this.value;render()" style="max-width:280px">${Object.entries(FILTROS_ANIMAIS).map(([k, [l]]) => `<option value="${k}" ${k === fs ? 'selected' : ''}>${l}</option>`).join('')}</select></div>
+    <select onchange="state.fAnimais=this.value;render()" style="max-width:280px">${Object.entries(FILTROS_ANIMAIS).map(([k, [l, f]]) => `<option value="${k}" ${k === fs ? 'selected' : ''}>${l} (${DB.list('animais').filter(f).length})</option>`).join('')}</select></div>
   <div id="listaAnimais">${listaAnimais()}</div></div>`;
 };
-window.editAnimal = (id) => openForm(id ? 'Editar animal' : 'Novo animal', F_ANIMAL, id ? animal(id) : { status: 'Ativo', aVenda: 'Não', posse: 'Próprio', pesoRateio: 1, dataEntrada: today() }, o => DB.upsert('animais', o));
+// nome repetido: ignora acentos, maiúsculas e espaços extras
+const chaveNome = (t) => String(t || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+window.nomeRepetido = (nome, ignorarId) => { const k = chaveNome(nome); return k ? DB.list('animais').find(a => a.id !== ignorarId && chaveNome(a.nome) === k) : null; };
+window.avisoNomeRepetido = (x) => avisar(`Já existe um animal chamado "${x.nome}"${x.status === 'Externo' ? ' (cadastrado como pai/garanhão de fora, para a genealogia). Para trazê-lo para o plantel, edite esse cadastro em Animais → filtro "Pais e garanhões de fora" e mude a situação para Ativo.' : ` (${x.status || 'sem situação'}${x.registro ? ', registro ' + x.registro : ''}).`}\n\nUse outro nome ou edite o cadastro que já existe.`);
+window.editAnimal = (id) => openForm(id ? 'Editar animal' : 'Novo animal', F_ANIMAL, id ? animal(id) : { status: 'Ativo', aVenda: 'Não', posse: 'Próprio', pesoRateio: 1, dataEntrada: today() }, o => { const r = nomeRepetido(o.nome, o.id); if (r) { avisoNomeRepetido(r); return false; } DB.upsert('animais', o); });
 
 function node(id, cls, depth) {
   const a = animal(id);
@@ -688,6 +693,7 @@ window.editNegocio = (id, tipoPadrao, extra) => {
       if (parts.some(p => p.socioId === g('contraparteSocioId'))) return alert('O comprador não pode estar também entre os vendedores.');
     }
     let animalId = g('animalId');
+    if (!animalId && g('novoNome') && g('tipo') === 'Compra' && nomeRepetido(g('novoNome'))) return avisoNomeRepetido(nomeRepetido(g('novoNome')));
     if (!animalId && g('novoNome') && g('tipo') === 'Compra') animalId = DB.upsert('animais', { nome: g('novoNome'), sexo: 'Macho', status: 'Ativo', posse: 'Próprio', pesoRateio: 1, dataEntrada: g('data'), aVenda: 'Não' }).id;
     const produto = g('produto');
     if (produto !== 'Animal') animalId = '';
@@ -724,12 +730,13 @@ function agendaParcelas() {
   const tipo = state.agTipo || 'todos', sit = state.agSit || 'aberto', per = state.agPer || '6';
   const hoje = today(), negSel = state.agNeg && DB.get('negocios', state.agNeg);
   const fimPer = per === 'tudo' ? '9999-12-31' : addMonths(hoje.slice(0, 7) + '-01', Number(per)).slice(0, 10);
-  let L = DB.list('financeiro').filter(f => f.negocioId && DB.get('negocios', f.negocioId));
-  if (negSel) L = L.filter(f => f.negocioId === negSel.id);
-  L = L.filter(f => tipo === 'todos' || (tipo === 'pagar' ? f.tipo === 'Despesa' : f.tipo === 'Receita'))
-    .filter(f => sit === 'todas' || (sit === 'aberto' ? f.status !== 'Pago' : sit === 'atrasadas' ? f.status !== 'Pago' && f.data < hoje : f.status === 'Pago'))
-    .filter(f => negSel || sit === 'pagas' || sit === 'atrasadas' || f.data < fimPer)
-    .sort((a, b) => a.data.localeCompare(b.data));
+  let base = DB.list('financeiro').filter(f => f.negocioId && DB.get('negocios', f.negocioId));
+  if (negSel) base = base.filter(f => f.negocioId === negSel.id);
+  const okTipo = (t) => f => t === 'todos' || (t === 'pagar' ? f.tipo === 'Despesa' : f.tipo === 'Receita');
+  const okSit = (st) => f => st === 'todas' || (st === 'aberto' ? f.status !== 'Pago' : st === 'atrasadas' ? f.status !== 'Pago' && f.data < hoje : f.status === 'Pago');
+  const okPer = (pe, st) => { const fim = pe === 'tudo' ? '9999-12-31' : addMonths(hoje.slice(0, 7) + '-01', Number(pe)).slice(0, 10); return f => negSel || st === 'pagas' || st === 'atrasadas' || f.data < fim; };
+  const conta = (t, st, pe) => base.filter(okTipo(t)).filter(okSit(st)).filter(okPer(pe, st)).length;
+  const L = base.filter(okTipo(tipo)).filter(okSit(sit)).filter(okPer(per, sit)).sort((a, b) => a.data.localeCompare(b.data));
   const neg = f => DB.get('negocios', f.negocioId) || {};
   const parc = f => { const n = neg(f), tot = (n.parcelasLista || []).length; return tot > 1 ? `${(f.parcelaIdx ?? 0) + 1}/${tot}` : 'única'; };
   const meses = {}; L.forEach(f => { const m = f.data.slice(0, 7); meses[m] = meses[m] || { r: 0, p: 0, n: 0 }; meses[m][f.tipo === 'Receita' ? 'r' : 'p'] += Number(f.valor); meses[m].n++; });
@@ -737,10 +744,11 @@ function agendaParcelas() {
   const nomeMes = m => new Date(m + '-15T12:00').toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' }).replace(/^./, c => c.toUpperCase());
   const soma = t => L.filter(f => f.tipo === t).reduce((a, f) => a + Number(f.valor), 0);
   const atrasadas = DB.list('financeiro').filter(f => f.negocioId && f.status !== 'Pago' && f.data < hoje);
-  const btn = (estado, k, l) => `<button class="${(state[estado] || ({ agTipo: 'todos', agSit: 'aberto', agPer: '6' })[estado]) === k ? '' : 'sec'}" onclick="state.${estado}='${k}';render()">${l}</button>`;
+  const btn = (estado, k, l) => { const c = estado === 'agTipo' ? conta(k, sit, per) : estado === 'agSit' ? conta(tipo, k, per) : conta(tipo, sit, k);
+    return `<button class="${(state[estado] || ({ agTipo: 'todos', agSit: 'aberto', agPer: '6' })[estado]) === k ? '' : 'sec'}" onclick="state.${estado}='${k}';render()">${l} (${c})</button>`; };
   return `${negSel ? `<div class="card row"><b>Parcelas de: ${esc(negSel.tipo)} ${esc(negLabel(negSel))}</b>${negSel.contraparte ? ` · ${esc(negSel.contraparte)}` : ''}<button class="sec" onclick="state.agNeg=null;render()">Ver todos os negócios</button></div>` : ''}
   <div class="card"><div class="row" style="margin-bottom:8px"><b style="min-width:70px">Mostrar:</b>${btn('agTipo', 'todos', 'Tudo')}${btn('agTipo', 'pagar', '🔴 A pagar (compras)')}${btn('agTipo', 'receber', '🟢 A receber (vendas)')}</div>
-    <div class="row" style="margin-bottom:8px"><b style="min-width:70px">Situação:</b>${btn('agSit', 'aberto', 'Em aberto')}${btn('agSit', 'atrasadas', `Atrasadas (${atrasadas.length})`)}${btn('agSit', 'pagas', 'Já pagas')}${btn('agSit', 'todas', 'Todas')}</div>
+    <div class="row" style="margin-bottom:8px"><b style="min-width:70px">Situação:</b>${btn('agSit', 'aberto', 'Em aberto')}${btn('agSit', 'atrasadas', 'Atrasadas')}${btn('agSit', 'pagas', 'Já pagas')}${btn('agSit', 'todas', 'Todas')}</div>
     ${negSel || ['pagas', 'atrasadas'].includes(sit) ? '' : `<div class="row"><b style="min-width:70px">Período:</b>${btn('agPer', '1', 'Este mês')}${btn('agPer', '3', '3 meses')}${btn('agPer', '6', '6 meses')}${btn('agPer', '12', '12 meses')}${btn('agPer', 'tudo', 'Tudo')}</div>`}</div>
   <div class="kpis"><div class="kpi"><small>A receber (vendas)</small><b style="color:var(--ok)">${brl(soma('Receita'))}</b></div><div class="kpi"><small>A pagar (compras)</small><b style="color:var(--bad)">${brl(soma('Despesa'))}</b></div><div class="kpi"><small>Saldo</small><b style="color:${soma('Receita') - soma('Despesa') >= 0 ? 'var(--ok)' : 'var(--bad)'}">${brl(soma('Receita') - soma('Despesa'))}</b></div><div class="kpi"><small>Parcelas</small><b>${L.length}</b></div></div>
   <div class="card"><h3>Fluxo por mês</h3>${table([['Mês', x => `<b>${nomeMes(x.m)}</b>`], ['Entra (vendas)', x => `<span style="color:var(--ok)">${brl(x.r)}</span>`], ['Sai (compras)', x => `<span style="color:var(--bad)">${brl(x.p)}</span>`], ['Saldo do mês', x => `<b style="color:${x.r - x.p >= 0 ? 'var(--ok)' : 'var(--bad)'}">${brl(x.r - x.p)}</b>`], ['Saldo acumulado', x => `<span style="color:${x.acum >= 0 ? 'var(--ok)' : 'var(--bad)'}">${brl(x.acum)}</span>`]], resumo)}</div>
@@ -776,7 +784,7 @@ V.negocios = (semAbas) => {
   const nsF = ns.filter(n => ft === 'todos' || (ft === 'compras' ? n.tipo === 'Compra' : n.tipo === 'Venda'));
   const statusPg = (n) => { const ps = n.parcelasLista || []; if (!ps.length) return ''; const pg = ps.filter(q => q.pagoEm).length, atr = ps.some(q => !q.pagoEm && q.vencimento < today());
     return pg === ps.length ? '<span class="tag ok">Quitado</span>' : `<span class="tag ${atr ? 'bad' : 'warn'}">${pg}/${ps.length} pagas${atr ? ' · atraso' : ''}</span>`; };
-  const botoesFiltro = `<div class="row" style="margin-bottom:12px">${[['todos', 'Todos'], ['compras', 'Só compras'], ['vendas', 'Só vendas']].map(([k, l]) => `<button class="${ft === k ? '' : 'sec'}" onclick="state.nFiltro='${k}';render()">${l}</button>`).join('')}<span class="muted">${nsF.length} negócio(s)</span></div>`;
+  const botoesFiltro = `<div class="row" style="margin-bottom:12px">${[['todos', 'Todos', ns.length], ['compras', 'Só compras', ns.filter(n => n.tipo === 'Compra').length], ['vendas', 'Só vendas', ns.filter(n => n.tipo === 'Venda').length]].map(([k, l, c]) => `<button class="${ft === k ? '' : 'sec'}" onclick="state.nFiltro='${k}';render()">${l} (${c})</button>`).join('')}</div>`;
   if (tab === 'negocios') body = `<div class="kpis"><div class="kpi"><small>Compras em ${ano} (nossa parte)</small><b style="color:var(--bad)">${brl(tot('Compra'))}</b></div><div class="kpi"><small>Vendas em ${ano} (nossa parte, líquido)</small><b style="color:var(--ok)">${brl(tot('Venda'))}</b></div><div class="kpi"><small>Negócios em ${ano}</small><b>${doAno.length}</b></div></div>
     <div class="card">${botoesFiltro}${table([
       ['Data', n => fdate(n.data)], ['Tipo', n => `<span class="tag ${n.tipo === 'Venda' ? 'ok' : 'warn'}">${n.tipo}</span>`], ['Pagamento', statusPg], ['Animal / produto', n => `<b>${esc(negLabel(n))}</b>` + (Number(n.pctAnimal) !== 100 ? `<br><small class="muted">${pct(n.pctAnimal)} do animal</small>` : '')],

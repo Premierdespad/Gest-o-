@@ -145,6 +145,7 @@ window.novoEvento = (eguaId, tipo, id) => {
     ev.preventDefault(); guardar();
     if (!e.eguaId) return avisar('Escolha a égua.');
     const { potroNome, potroSexo, potroPelagem, ...rec } = e;
+    if (rec.tipo === 'PARTO' && !id && potroNome && rec.resultado === 'Nascido vivo' && nomeRepetido(potroNome)) return avisoNomeRepetido(nomeRepetido(potroNome));
     if (!rec.criadoEm) rec.criadoEm = new Date().toISOString();
     const salvo = DB.upsert('eventos', rec);
     // coleta com embrião inovulado: cria o registro na receptora
@@ -217,7 +218,7 @@ V.reproducao = () => {
   const vis = L.filter(FIL[fl][1]).sort((x, y) => ordem[x.st.status] - ordem[y.st.status] || (x.st.prevParto || '').localeCompare(y.st.prevParto || '') || x.a.nome.localeCompare(y.a.nome));
   const proxPartos = L.filter(x => x.st.prevParto && daysUntil(x.st.prevParto) <= 60).length;
   return abas + `<div class="kpis"><div class="kpi"><small>Éguas</small><b>${L.length}</b></div><div class="kpi"><small>Prenhes</small><b style="color:var(--ok)">${cnt(x => x.st.status === 'Prenhe')}</b><small>${proxPartos} parto(s) nos próximos 60 dias</small></div><div class="kpi"><small>Aguardando diagnóstico</small><b>${cnt(x => x.st.status === 'Aguardando DG')}</b><small>${cnt(x => x.st.status === 'Aguardando DG' && x.st.dias >= 14)} já podem ser examinadas</small></div><div class="kpi"><small>Vazias</small><b>${cnt(x => x.st.status === 'Vazia')}</b></div></div>
-  <div class="card"><div class="row" style="margin-bottom:10px">${Object.entries(FIL).map(([k, [l]]) => `<button class="${fl === k ? '' : 'sec'}" onclick="state.rFiltro='${k}';render()">${l}</button>`).join('')}
+  <div class="card"><div class="row" style="margin-bottom:10px">${Object.entries(FIL).map(([k, [l, f]]) => `<button class="${fl === k ? '' : 'sec'}" onclick="state.rFiltro='${k}';render()">${l} (${L.filter(f).length})</button>`).join('')}
     <label style="margin:0 0 0 8px;display:flex;gap:6px;align-items:center"><input type="checkbox" style="width:auto" ${potras ? 'checked' : ''} onchange="state.rPotras=this.checked;render()"> mostrar potras (menos de 2 anos)</label></div>
   ${table([
     ['Égua', x => `<a href="#" onclick="state.reproEgua='${x.a.id}';render();return false"><b>${esc(x.a.nome)}</b></a><br><small class="muted">${esc(x.a.categoria || '')}${x.a.nascimento ? ' · ' + idade(x.a.nascimento) : ''}</small>`],
