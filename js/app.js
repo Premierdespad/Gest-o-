@@ -698,6 +698,11 @@ window.editNegocio = (id, tipoPadrao, extra) => {
     const a = animal(animalId), restante = Object.values(composicao(animalId)).reduce((x, y) => x + y, 0);
     if (o.tipo === 'Compra' && !DB.list('movimentacoes').some(x => x.negocioId === o.id)) DB.upsert('movimentacoes', { animalId, tipo: 'Entrada', data: o.data, motivo: 'Compra', origemDestino: o.contraparte, negocioId: o.id });
     if (o.tipo === 'Venda' && restante <= 0.01) { DB.upsert('animais', { ...a, status: 'Vendido', aVenda: 'Não', dataSaida: o.data }); if (!DB.list('movimentacoes').some(x => x.negocioId === o.id)) DB.upsert('movimentacoes', { animalId, tipo: 'Saída', data: o.data, motivo: 'Venda', origemDestino: o.contraparte, negocioId: o.id }); }
+    // venda parcial: o haras continua dono de uma parte → o animal segue no plantel
+    if (o.tipo === 'Venda' && restante > 0.01) {
+      if (a.status === 'Vendido') DB.upsert('animais', { ...animal(animalId), status: 'Ativo', dataSaida: '' });
+      DB.list('movimentacoes').filter(x => x.negocioId === o.id && x.tipo === 'Saída').forEach(x => DB.remove('movimentacoes', x.id));
+    }
     m.remove(); render();
   };
 };

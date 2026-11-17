@@ -123,10 +123,17 @@ function importarDados(d) {
   });
 
   // Movimentações de entrada/saída para compras e vendas importadas
-  L('negocios').filter(n => n.importado && n.animalId).forEach(n => {
+  L('negocios').filter(n => n.importado && n.animalId && !(n.tipo === 'Venda' && Number(n.pctAnimal || 100) < 100)).forEach(n => { // venda parcial não é saída do plantel
     const mid = 'imp-mov-' + n.id;
     if (!DB.get('movimentacoes', mid)) put('movimentacoes', { id: mid, animalId: n.animalId, tipo: n.tipo === 'Compra' ? 'Entrada' : 'Saída', data: n.data, motivo: n.tipo, origemDestino: n.contraparte, negocioId: n.id });
   });
+  L('negocios').filter(n => n.importado && n.tipo === 'Venda' && Number(n.pctAnimal || 100) < 100).forEach(n => { if (DB.get('movimentacoes', 'imp-mov-' + n.id)) DB.remove('movimentacoes', 'imp-mov-' + n.id); });
+  // animal marcado como vendido no app antigo, mas o haras ainda tem parte dele (venda parcial): continua no plantel
+  if (typeof composicao === 'function' && typeof socioProprio === 'function' && socioProprio()) {
+    L('animais').filter(a => a.status === 'Vendido' && a.id.startsWith('imp-cav-')).forEach(a => {
+      if ((composicao(a.id)[socioProprio().id] || 0) > 0.01) { a.status = 'Ativo'; a.dataSaida = ''; res.avisos.push(`${a.nome}: estava como "Vendido", mas o haras ainda tem ${pct(composicao(a.id)[socioProprio().id])} — mantido no plantel.`); }
+    });
+  }
   DB.save();
   return res;
 }
