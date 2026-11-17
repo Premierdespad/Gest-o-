@@ -198,7 +198,16 @@ V.dashboard = () => {
   </div>`;
 };
 
-const FILTROS_ANIMAIS = { ativos: ['Ativos (plantel)', a => a.status !== 'Externo' && !['Vendido', 'Morto'].includes(a.status)], haras: ['Todos do haras (inclui vendidos)', a => a.status !== 'Externo'], proprios: ['Só meus (sem pensão)', a => a.status === 'Ativo' && a.posse !== 'Pensão'], pensao: ['Só pensão', a => a.status === 'Ativo' && a.posse === 'Pensão'], vendidos: ['Vendidos', a => a.status === 'Vendido'], mortos: ['Mortos', a => a.status === 'Morto'], externos: ['Pais e garanhões de fora (só genealogia)', a => a.status === 'Externo'] };
+function vendaParcial(a) {
+  if (!a || a.status === 'Vendido' || a.status === 'Externo') return null;
+  const vs = DB.list('negocios').filter(n => n.animalId === a.id && n.tipo === 'Venda' && (!n.produto || n.produto === 'Animal'));
+  if (!vs.length) return null;
+  const eu = socioProprio(), nossa = eu ? (composicao(a.id)[eu.id] || 0) : 100;
+  if (nossa <= 0.01 || nossa >= 99.99) return null;
+  return { vendido: 100 - nossa, nossa, para: [...new Set(vs.map(n => (n.contraparteSocioId && sname(n.contraparteSocioId)) || n.contraparte).filter(Boolean))] };
+}
+const tagVendaParcial = (a) => { const v = vendaParcial(a); return v ? ` <span class="tag warn" title="O haras continua com ${pct(v.nossa)}">Vendida ${pct(v.vendido)}${v.para.length ? ' · ' + esc(v.para.join(', ')) : ''}</span>` : ''; };
+const FILTROS_ANIMAIS = { ativos: ['Ativos (plantel)', a => a.status !== 'Externo' && !['Vendido', 'Morto'].includes(a.status)], haras: ['Todos do haras (inclui vendidos)', a => a.status !== 'Externo'], proprios: ['Só meus (sem pensão)', a => a.status === 'Ativo' && a.posse !== 'Pensão'], pensao: ['Só pensão', a => a.status === 'Ativo' && a.posse === 'Pensão'], vendidos: ['Vendidos (inclui venda parcial)', a => a.status === 'Vendido' || !!vendaParcial(a)], mortos: ['Mortos', a => a.status === 'Morto'], externos: ['Pais e garanhões de fora (só genealogia)', a => a.status === 'Externo'] };
 const semAcento = (t) => String(t || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
 function listaAnimais() {
   const q = semAcento(state.filtro), fs = state.fAnimais || 'ativos';
@@ -207,7 +216,7 @@ function listaAnimais() {
     ['', a => a.foto ? `<img src="${a.foto}" class="thumb">` : '<span class="thumb"></span>'],
     ['Nome', a => `<a href="#" onclick="state.animalId='${a.id}';state.tab='dados';render();return false"><b>${esc(a.nome)}</b></a><br><small class="muted">${esc(a.registro || '')}</small>`],
     ['Sexo', a => esc(a.sexo)], ['Idade', a => idade(a.nascimento)], ['Posse', a => a.posse === 'Pensão' ? `<span class="tag warn">Pensão</span><br><small class="muted">${esc(a.proprietario || '')}</small>` : '<span class="tag">Próprio</span>'], ['Raça', a => esc(a.raca)], ['Categoria', a => esc(a.categoria)], ['Local', a => esc(a.local)],
-    ['Situação', a => `<span class="tag ${a.status === 'Ativo' ? 'ok' : a.status === 'Morto' ? 'bad' : ''}">${esc(a.status)}</span>`],
+    ['Situação', a => `<span class="tag ${a.status === 'Ativo' ? 'ok' : a.status === 'Morto' ? 'bad' : ''}">${esc(a.status)}</span>` + tagVendaParcial(a)],
   ], rows, a => `<button class="lnk" onclick="editAnimal('${a.id}')">Editar</button><button class="del" onclick="del('animais','${a.id}')">Excluir</button>`);
 }
 // a busca atualiza só a lista: o campo continua com o cursor enquanto você digita
@@ -271,7 +280,7 @@ V.animal = () => {
       <p class="muted">Custos diretos: ${brl(c.diretos)} · Rateio de custos gerais: ${brl(c.rateio)}</p>` +
       table([['Data', i => fdate(i.data)], ['Origem', i => esc(i.origem)], ['Descrição', i => esc(i.desc)], ['Valor', i => `<span style="color:${i.v >= 0 ? 'var(--ok)' : 'var(--bad)'}">${brl(i.v)}</span>`]], c.itens.slice().sort((x, y) => y.data.localeCompare(x.data)).slice(0, 200));
   }
-  return `<div class="card"><div class="row" style="justify-content:space-between"><div><button class="sec" onclick="state.animalId=null;render()">← Voltar</button> <b style="font-size:20px;margin-left:8px">${esc(a.nome)}</b></div>
+  return `<div class="card"><div class="row" style="justify-content:space-between"><div><button class="sec" onclick="state.animalId=null;render()">← Voltar</button> <b style="font-size:20px;margin-left:8px">${esc(a.nome)}</b>${tagVendaParcial(a)}</div>
     <div class="row"><button class="sec" onclick="verABCCMM('${a.id}')" title="Copia o nome e abre a busca da ABCCMM">🔎 ABCCMM</button>${a.sexo === 'Fêmea' && a.status === 'Ativo' ? `<button class="sec" onclick="novoEvento('${a.id}')">+ Reprodução</button><button class="sec" onclick="editNegocio(null,'Venda',{produto:'Embrião',doadoraId:'${a.id}'})">Vender embrião</button>` : ''}${a.status === 'Ativo' && a.posse !== 'Pensão' ? `<button class="sec" onclick="editNegocio(null,'Venda',{animalId:'${a.id}'})">Registrar venda</button>` : ''}<button class="sec" onclick="window.print()">Imprimir ficha</button><button onclick="editAnimal('${a.id}')">Editar</button></div></div><br>
     <div class="tabs">${tabs.map(([k, l]) => `<button class="${state.tab === k ? 'on' : ''}" onclick="state.tab='${k}';render()">${l}</button>`).join('')}</div>${body}</div>`;
 };
