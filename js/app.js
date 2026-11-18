@@ -337,10 +337,13 @@ window.aplicacaoLote = () => {
   });
 };
 
+// receitas da PENSÃO ficam no Financeiro; as demais receitas (coberturas, sêmen, prêmios...) ficam em Criação
+const ehReceitaPensao = (f) => f.tipo === 'Receita' && !f.negocioId && (f.centro === 'Pensão' || animal(f.animalId)?.posse === 'Pensão' || (f.animaisIds || []).some(i => animal(i)?.posse === 'Pensão'));
+const ehReceitaCriacao = (f) => f.tipo === 'Receita' && !f.negocioId && !ehReceitaPensao(f);
 V.financeiro = () => {
-  const mes = state.finMes; const tudo = DB.list('financeiro'), all = tudo.filter(f => !f.negocioId); // compra e venda de animais fica na aba Criação
+  const mes = state.finMes; const tudo = DB.list('financeiro'), all = tudo.filter(f => !f.negocioId && !ehReceitaCriacao(f)); // compra/venda e receitas da criação ficam na aba Criação
   const rows = all.filter(f => !mes || f.data.startsWith(mes)).sort((a, b) => b.data.localeCompare(a.data));
-  const negs = tudo.filter(f => f.negocioId && (!mes || f.data.startsWith(mes)));
+  const negs = tudo.filter(f => (f.negocioId || ehReceitaCriacao(f)) && (!mes || f.data.startsWith(mes)));
   const sum = (arr, t) => arr.filter(f => f.tipo === t).reduce((s, f) => s + Number(f.valor), 0);
   // custos do prontuário sanitário também são gasto do manejo (como no app antigo)
   const sanCusto = DB.list('sanidade').filter(x => Number(x.custo) && (!mes || (x.data || '').startsWith(mes))).reduce((t, x) => t + Number(x.custo), 0);
@@ -352,10 +355,10 @@ V.financeiro = () => {
   return `${atras.length ? `<div class="card" style="border-color:var(--bad)"><h3>⚠️ Parcelas atrasadas (${atras.length})</h3>${table([['Vencimento', f => fdate(f.data) + ` <span class="tag bad">${-daysUntil(f.data)}d</span>`], ['Descrição', f => esc(f.descricao) + (f.contraparte ? `<br><small class="muted">${esc(f.contraparte)}</small>` : '')], ['Valor', f => `<b style="color:${f.tipo === 'Receita' ? 'var(--ok)' : 'var(--bad)'}">${f.tipo === 'Despesa' ? '-' : ''}${brl(f.valor)}</b>`]], atras.slice(0, 50), f => `<button class="lnk" onclick="baixar('${f.id}')">Baixar</button>`)}</div>` : ''}
   <div class="card row"><label style="margin:0">Período:</label><input type="month" value="${mes}" onchange="state.finMes=this.value;render()" style="max-width:180px"><button class="sec" onclick="state.finMes='';render()">Todo o período</button>
     <span class="muted">Centros de custo:</span> ${DB.data.centrosCusto.map(c => `<span class="tag">${esc(c)}</span>`).join(' ')} <button class="lnk" onclick="novoCentro()">+ centro</button></div>
-  <div class="kpis"><div class="kpi"><small>Receitas do manejo</small><b style="color:var(--ok)">${brl(rec)}</b><small>pensão, coberturas, serviços</small></div><div class="kpi"><small>Gastos do manejo</small><b style="color:var(--bad)">${brl(desp)}</b><small>alimentação, pessoal, sanidade...</small></div><div class="kpi"><small>Resultado do manejo</small><b>${brl(rec - desp)}</b></div><div class="kpi"><small>Contas pendentes</small><b>${pend.length}</b><small>${brl(pend.reduce((s, f) => s + (f.tipo === 'Despesa' ? -1 : 1) * f.valor, 0))}</small></div></div>
+  <div class="kpis"><div class="kpi"><small>Receitas da pensão</small><b style="color:var(--ok)">${brl(rec)}</b><small>mensalidades e serviços cobrados</small></div><div class="kpi"><small>Gastos do manejo</small><b style="color:var(--bad)">${brl(desp)}</b><small>alimentação, pessoal, sanidade...</small></div><div class="kpi"><small>Resultado do manejo</small><b>${brl(rec - desp)}</b></div><div class="kpi"><small>Contas pendentes</small><b>${pend.length}</b><small>${brl(pend.reduce((s, f) => s + (f.tipo === 'Despesa' ? -1 : 1) * f.valor, 0))}</small></div></div>
   ${(() => { const nr = sum(negs, 'Receita'), nd = sum(negs, 'Despesa'), tot = rec - desp + nr - nd, cor = v => v >= 0 ? 'var(--ok)' : 'var(--bad)';
     return `<div class="card"><h3>Resultado geral do haras ${mes ? 'em ' + mes.slice(5) + '/' + mes.slice(0, 4) : '(todo o período)'}</h3>${table([['', r => `<b>${r[0]}</b>`], ['Entradas', r => brl(r[1])], ['Saídas', r => brl(r[2])], ['Resultado', r => `<b style="color:${cor(r[1] - r[2])}">${brl(r[1] - r[2])}</b>`]],
-      [['Manejo (esta aba)', rec, desp], ['Compra e venda de animais (aba Criação)', nr, nd], ['TOTAL', rec + nr, desp + nd]])}<p class="muted">Compra e venda de animais é lançada e acompanhada na aba <a href="#criacao" onclick="state.crTab='agenda'">Criação</a>; aqui aparece só no total, pela data de cada parcela.</p></div>`; })()}
+      [['Manejo e pensão (esta aba)', rec, desp], ['Criação: vendas, compras e outras receitas (aba Criação)', nr, nd], ['TOTAL', rec + nr, desp + nd]])}<p class="muted">Compra e venda de animais é lançada e acompanhada na aba <a href="#criacao" onclick="state.crTab='agenda'">Criação</a>; aqui aparece só no total, pela data de cada parcela.</p></div>`; })()}
   <div class="card"><h3>Demonstrativo por centro de custo</h3>${table([['Centro', ([c]) => esc(c)], ['Receitas', ([, v]) => brl(v.r)], ['Despesas', ([, v]) => brl(v.d)], ['Resultado', ([, v]) => `<b style="color:${v.r - v.d >= 0 ? 'var(--ok)' : 'var(--bad)'}">${brl(v.r - v.d)}</b>`]], Object.entries(porCentro))}</div>
   <div class="card"><h3>Lançamentos</h3>${table([
     ['Data', f => fdate(f.data)], ['Descrição', f => esc(f.descricao) + (f.contraparte ? `<br><small class="muted">${esc(f.contraparte)}</small>` : '')], ['Centro', f => esc(f.centro)], ['Animal / rateio', f => f.animaisIds?.length ? `<span title="${esc(f.animaisIds.map(aname).join(', '))}">Grupo: ${f.animaisIds.length} animais</span>` : f.animalId ? esc(aname(f.animalId)) : f.tipo === 'Despesa' ? `<small class="muted">${esc(f.rateio || 'Todos os animais')}</small>` : ''],
@@ -853,12 +856,13 @@ V.negocios = (semAbas) => {
 };
 
 // ---------- Aba Criação: tudo dos animais de criação (patrimônio, compra e venda, parcelas, custos, sócios) ----------
-const ABAS_CRIACAO = [['patrimonio', '💎 Patrimônio'], ['negocios', 'Compras e vendas'], ['agenda', '📅 Agenda de parcelas'], ['custos', 'Custo por animal'], ['resultado', 'Resultado por animal'], ['socios', 'Sócios']];
+const ABAS_CRIACAO = [['patrimonio', '💎 Patrimônio'], ['receitas', '💰 Receitas da criação'], ['negocios', 'Compras e vendas'], ['agenda', '📅 Agenda de parcelas'], ['custos', 'Custo por animal'], ['resultado', 'Resultado por animal'], ['socios', 'Sócios']];
 V.criacao = () => {
   const t = state.crTab || 'patrimonio';
   const abas = `<div class="tabs">${ABAS_CRIACAO.map(([k, l]) => `<button class="${t === k ? 'on' : ''}" onclick="state.crTab='${k}';state.agNeg=null;render()">${l}</button>`).join('')}</div>`;
   let corpo;
   if (t === 'patrimonio') corpo = blocoPatrimonio();
+  else if (t === 'receitas') corpo = receitasCriacao();
   else if (t === 'custos') { state.ctab = 'criacao'; corpo = V.custos(); }
   else { state.ntab = { negocios: 'negocios', agenda: 'agenda', resultado: 'animais', socios: 'socios' }[t]; corpo = V.negocios(true); }
   return abas + corpo;
@@ -867,6 +871,31 @@ V.pensao = () => {
   if (!['pensao', 'clientes'].includes(state.ctab)) state.ctab = 'pensao';
   return V.custos([['pensao', 'Custo × valor cobrado'], ['clientes', 'Por cliente']]);
 };
+
+// ---------- Criação → Receitas: vendas (negócios) + receitas avulsas (cobertura, sêmen, prêmios...) ----------
+function receitasCriacao() {
+  const ano = state.rcAno || today().slice(0, 4), noAno = (d) => ano === 'todos' || (d || '').startsWith(ano);
+  const eu = socioProprio(), minha = (n) => (n.participacoes || []).find(p => p.socioId === eu?.id)?.pct || 0;
+  const vendas = DB.list('negocios').filter(n => n.tipo === 'Venda' && noAno(n.data));
+  const vAnimais = vendas.filter(n => !n.produto || n.produto === 'Animal'), vEmb = vendas.filter(n => n.produto === 'Embrião'), vOutros = vendas.filter(n => n.produto && !['Animal', 'Embrião'].includes(n.produto));
+  const parte = (arr) => arr.reduce((t, n) => t + valorLiquido(n) * minha(n) / 100, 0);
+  const avulsas = DB.list('financeiro').filter(f => ehReceitaCriacao(f) && noAno(f.data)).sort((a, b) => b.data.localeCompare(a.data));
+  const porCentro = {}; avulsas.forEach(f => { const c = f.centro || 'Outras'; porCentro[c] = (porCentro[c] || 0) + Number(f.valor); });
+  const recebido = DB.list('financeiro').filter(f => f.tipo === 'Receita' && (f.negocioId || ehReceitaCriacao(f)) && f.status === 'Pago' && noAno(f.data)).reduce((t, f) => t + Number(f.valor), 0);
+  const aReceber = DB.list('financeiro').filter(f => f.tipo === 'Receita' && (f.negocioId || ehReceitaCriacao(f)) && f.status !== 'Pago' && noAno(f.data)).reduce((t, f) => t + Number(f.valor), 0);
+  const total = parte(vAnimais) + parte(vEmb) + parte(vOutros) + avulsas.reduce((t, f) => t + Number(f.valor), 0);
+  const anos = [...new Set([today().slice(0, 4), ...DB.list('negocios').map(n => (n.data || '').slice(0, 4)), ...DB.list('financeiro').filter(ehReceitaCriacao).map(f => (f.data || '').slice(0, 4))])].filter(Boolean).sort().reverse();
+  return `<div class="card row"><b>Ano:</b>${anos.map(a => `<button class="${ano === a ? '' : 'sec'}" onclick="state.rcAno='${a}';render()">${a}</button>`).join('')}<button class="${ano === 'todos' ? '' : 'sec'}" onclick="state.rcAno='todos';render()">Todos</button></div>
+  <div class="kpis"><div class="kpi"><small>Total de receitas da criação</small><b style="color:var(--ok)">${brl(total)}</b><small>nossa parte, líquido de comissão</small></div>
+    <div class="kpi"><small>Venda de animais (${vAnimais.length})</small><b>${brl(parte(vAnimais))}</b></div><div class="kpi"><small>Venda de embriões (${vEmb.length})</small><b>${brl(parte(vEmb))}</b></div>
+    <div class="kpi"><small>Coberturas, sêmen e outras (${avulsas.length + vOutros.length})</small><b>${brl(avulsas.reduce((t, f) => t + Number(f.valor), 0) + parte(vOutros))}</b></div></div>
+  <div class="kpis"><div class="kpi"><small>Já recebido no período</small><b style="color:var(--ok)">${brl(recebido)}</b></div><div class="kpi"><small>A receber (parcelas e lançamentos em aberto)</small><b style="color:var(--warn)">${brl(aReceber)}</b></div></div>
+  <div class="card"><h3>Coberturas, sêmen, prêmios e outras receitas</h3>
+    ${Object.keys(porCentro).length ? `<p class="muted">${Object.entries(porCentro).map(([c, v]) => `${esc(c)}: <b>${brl(v)}</b>`).join(' · ')}</p>` : ''}
+    ${table([['Data', f => fdate(f.data)], ['Descrição', f => esc(f.descricao) + (f.contraparte ? `<br><small class="muted">${esc(f.contraparte)}</small>` : '')], ['Tipo', f => esc(f.centro || '')], ['Animal', f => f.animaisIds?.length ? `Grupo: ${f.animaisIds.length}` : esc(aname(f.animalId))], ['Valor', f => `<b style="color:var(--ok)">${brl(f.valor)}</b>`], ['Situação', f => `<span class="tag ${f.status === 'Pago' ? 'ok' : 'warn'}">${f.status === 'Pago' ? 'Recebido' : 'A receber'}</span>`]], avulsas,
+      f => `${f.status !== 'Pago' ? `<button class="lnk" onclick="baixar('${f.id}')">✓ Recebido</button>` : ''}<button class="lnk" onclick="editarLancamento('${f.id}')">Editar</button><button class="del" onclick="del('financeiro','${f.id}')">Excluir</button>`)}
+    <p class="muted">Ex.: cobertura vendida do Istambul, venda de sêmen, prêmio de exposição. Vendas de animais e de embriões são lançadas em <b>Compras e vendas</b> (com parcelas e sócios) e entram nos totais acima.</p></div>`;
+}
 
 // ---------- seletor de animais (caixinhas + atalhos), usado no financeiro ----------
 const GRUPOS_ANIMAIS = {
@@ -887,8 +916,8 @@ function ligarSeletorAnimais(raiz, aoMudar) {
 const lerSeletorAnimais = (raiz) => [...raiz.querySelectorAll('.sel-lista input:checked')].map(i => i.value);
 
 // ---------- lançamento do financeiro: um animal, um grupo de animais ou rateio geral ----------
-window.editarLancamento = (id) => {
-  const f = id ? JSON.parse(JSON.stringify(DB.get('financeiro', id))) : { data: today(), tipo: 'Despesa', status: 'Pago' };
+window.editarLancamento = (id, pre) => {
+  const f = id ? JSON.parse(JSON.stringify(DB.get('financeiro', id))) : { data: today(), tipo: 'Despesa', status: 'Pago', ...(pre || {}) };
   const destino0 = f.animaisIds?.length ? 'grupo' : f.animalId ? 'animal' : 'geral';
   const m = document.createElement('div'); m.className = 'modal';
   const camposBase = F_FIN().filter(c => !['animalId', 'rateio'].includes(c.k));
@@ -926,7 +955,10 @@ window.editarLancamento = (id) => {
     o.rateio = d === 'geral' ? $m('#f_rateio').value : '';
     if (d === 'animal' && !o.animalId) return avisar('Escolha o animal.');
     if (d === 'grupo' && !o.animaisIds.length) return avisar('Marque pelo menos um animal do grupo.');
-    DB.upsert('financeiro', o); m.remove(); render();
+    DB.upsert('financeiro', o); m.remove();
+    if (state.view === 'financeiro' && ehReceitaCriacao(o)) { state.crTab = 'receitas'; avisar('Receita salva. Receitas que não são de pensão (cobertura, sêmen, prêmios...) ficam em Criação → Receitas da criação. Para aparecer aqui no Financeiro, use o centro de custo "Pensão".'); }
+    if (state.view === 'criacao' && ehReceitaPensao(o)) avisar('Receita salva como receita de PENSÃO: ela aparece no Financeiro (manejo), não aqui.');
+    render();
   };
 };
 
@@ -937,7 +969,7 @@ const ACOES = {
   sanidade: () => `<button class="sec" onclick="aplicacaoLote()">Aplicação em lote</button><button onclick="openForm('Novo registro sanitário',F_SAN,{data:today()},o=>DB.upsert('sanidade',o))">+ Novo registro</button>`,
   financeiro: () => `<button onclick="editarLancamento()">+ Novo lançamento</button>`,
   pensao: () => `<button class="sec" onclick="cobrarExtra()">Cobrar serviço extra</button><button onclick="gerarCobrancas()">Gerar cobranças de pensão do mês</button>`,
-  criacao: () => (state.crTab || 'patrimonio') === 'patrimonio' || state.crTab === 'custos' ? '' : state.crTab === 'socios' ? `<button onclick="novoSocio(()=>{})">+ Novo sócio</button>` : `<button class="sec" onclick="editNegocio(null,'Venda')">+ Venda</button><button onclick="editNegocio(null,'Compra')">+ Compra</button>`,
+  criacao: () => state.crTab === 'receitas' ? `<button onclick="editarLancamento(null,{tipo:'Receita',centro:'Reprodução'})">+ Nova receita da criação</button>` : (state.crTab || 'patrimonio') === 'patrimonio' || state.crTab === 'custos' ? '' : state.crTab === 'socios' ? `<button onclick="novoSocio(()=>{})">+ Novo sócio</button>` : `<button class="sec" onclick="editNegocio(null,'Venda')">+ Venda</button><button onclick="editNegocio(null,'Compra')">+ Compra</button>`,
   estoque: () => `<button onclick="openForm('Novo item',F_EST,{},o=>DB.upsert('estoque',o))">+ Novo item</button>`,
   relatorios: () => `<button onclick="exportarRelatorioPDF()">📄 Exportar PDF</button>`,
   usuarios: () => `<button onclick="openForm('Novo usuário',F_USU,{perfil:'Funcionário',ativo:'Sim'},o=>DB.upsert('usuarios',o))">+ Novo usuário</button>`,
