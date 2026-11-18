@@ -19,7 +19,32 @@ function pendenciasSanitarias() {
   return Object.values(ult).filter(x => x.proxima && animal(x.animalId)?.status === 'Ativo').sort((a, b) => a.proxima.localeCompare(b.proxima));
 }
 const ABCCMM_URL = 'https://www.abccmm.org.br/animais';
-window.verABCCMM = (id) => { const n = animal(id)?.nome || ''; navigator.clipboard?.writeText(n).catch(() => {}); window.open(ABCCMM_URL, '_blank', 'noopener'); };
+// Consulta na ABCCMM. Dentro do link do Claude, abrir outra aba e copiar texto podem ser bloqueados,
+// por isso a janela mostra o nome para copiar, o link e o endereço por escrito.
+async function copiarTexto(t, campo) {
+  try { await navigator.clipboard.writeText(t); return true; } catch (e) { /* bloqueado: tenta pelo campo */ }
+  try { if (campo) { campo.focus(); campo.select(); campo.setSelectionRange(0, 9999); return document.execCommand('copy'); } } catch (e) { /* sem cópia automática */ }
+  return false;
+}
+window.verABCCMM = (id) => {
+  const a = animal(id) || {}, m = document.createElement('div'); m.className = 'modal'; m.style.alignItems = 'center';
+  m.innerHTML = `<div class="box" style="max-width:520px"><div class="top"><h3 style="margin:0">🔎 Consultar na ABCCMM</h3><button type="button" class="sec" data-x>Fechar</button></div>
+    <p style="margin-top:0"><b>1.</b> Copie o nome do animal:</p>
+    <div class="row"><input id="ab_nome" readonly value="${esc(a.nome || '')}" style="flex:1"><button id="ab_copiar">Copiar nome</button></div>
+    ${a.registro ? `<p class="muted" style="margin:6px 0 0">Registro: <b>${esc(a.registro)}</b></p>` : ''}
+    <p><b>2.</b> Abra a consulta e cole o nome na busca:</p>
+    <a class="btn" href="${ABCCMM_URL}" target="_blank" rel="noopener" style="color:#fff">Abrir site da ABCCMM ↗</a>
+    <p class="muted" style="margin-top:12px">Se o site não abrir, copie este endereço e cole no navegador:</p>
+    <div class="row"><input id="ab_url" readonly value="${ABCCMM_URL}" style="flex:1"><button class="sec" id="ab_cpurl">Copiar endereço</button></div>
+    <p class="muted" style="margin-bottom:0"><b>3.</b> Depois, salve a página da genealogia (print ou PDF) e use <b>Importar da ABCCMM</b> na aba Genealogia.</p></div>`;
+  document.body.appendChild(m);
+  const ok = (b, txt) => { b.textContent = txt; setTimeout(() => { b.textContent = b.id === 'ab_copiar' ? 'Copiar nome' : 'Copiar endereço'; }, 2000); };
+  m.querySelector('#ab_copiar').onclick = async (e) => ok(e.target, (await copiarTexto(a.nome || '', m.querySelector('#ab_nome'))) ? '✓ Copiado' : 'Selecione e copie');
+  m.querySelector('#ab_cpurl').onclick = async (e) => ok(e.target, (await copiarTexto(ABCCMM_URL, m.querySelector('#ab_url'))) ? '✓ Copiado' : 'Selecione e copie');
+  m.querySelectorAll('input[readonly]').forEach(i => i.onfocus = () => i.select());
+  m.querySelectorAll('[data-x]').forEach(b => b.onclick = () => m.remove());
+  m.onclick = (e) => { if (e.target === m) m.remove(); };
+};
 
 // ---------- Perfis e permissões ----------
 const MODULOS = [
