@@ -311,7 +311,7 @@ V.animal = () => {
       table([['Data', i => fdate(i.data)], ['Origem', i => esc(i.origem)], ['Descrição', i => esc(i.desc)], ['Valor', i => `<span style="color:${i.v >= 0 ? 'var(--ok)' : 'var(--bad)'}">${brl(i.v)}</span>`]], c.itens.slice().sort((x, y) => y.data.localeCompare(x.data)).slice(0, 200));
   }
   return `<div class="card"><div class="row" style="justify-content:space-between"><div><button class="sec" onclick="state.animalId=null;render()">← Voltar</button> <b style="font-size:20px;margin-left:8px">${esc(a.nome)}</b>${tagVendaParcial(a)}</div>
-    <div class="row"><button class="sec" onclick="verABCCMM('${a.id}')" title="Copia o nome e abre a busca da ABCCMM">🔎 ABCCMM</button>${a.sexo === 'Fêmea' && a.status === 'Ativo' ? `<button class="sec" onclick="novoEvento('${a.id}')">+ Reprodução</button><button class="sec" onclick="editNegocio(null,'Venda',{produto:'Embrião',doadoraId:'${a.id}'})">Vender embrião</button>` : ''}${a.status === 'Ativo' && a.posse !== 'Pensão' ? `<button class="sec" onclick="editNegocio(null,'Venda',{animalId:'${a.id}'})">Registrar venda</button>` : ''}<button class="sec" onclick="window.print()">Imprimir ficha</button><button onclick="editAnimal('${a.id}')">Editar</button></div></div><br>
+    <div class="row"><button class="sec" onclick="verABCCMM('${a.id}')" title="Copia o nome e abre a busca da ABCCMM">🔎 ABCCMM</button>${a.sexo === 'Fêmea' && a.status === 'Ativo' ? `<button class="sec" onclick="novoEvento('${a.id}')">+ Reprodução</button><button class="sec" onclick="editNegocio(null,'Venda',{produto:'Embrião',doadoraId:'${a.id}'})">Vender embrião</button>` : ''}${a.status === 'Ativo' && a.posse !== 'Pensão' ? `<button class="sec" onclick="editNegocio(null,'Venda',{animalId:'${a.id}'})">Registrar venda</button>` : ''}<button class="sec" onclick="exportarFicha('${a.id}')">📄 Exportar PDF</button><button onclick="editAnimal('${a.id}')">Editar</button></div></div><br>
     <div class="tabs">${tabs.map(([k, l]) => `<button class="${state.tab === k ? 'on' : ''}" onclick="state.tab='${k}';render()">${l}</button>`).join('')}</div>${body}</div>`;
 };
 
@@ -939,7 +939,7 @@ const ACOES = {
   pensao: () => `<button class="sec" onclick="cobrarExtra()">Cobrar serviço extra</button><button onclick="gerarCobrancas()">Gerar cobranças de pensão do mês</button>`,
   criacao: () => (state.crTab || 'patrimonio') === 'patrimonio' || state.crTab === 'custos' ? '' : state.crTab === 'socios' ? `<button onclick="novoSocio(()=>{})">+ Novo sócio</button>` : `<button class="sec" onclick="editNegocio(null,'Venda')">+ Venda</button><button onclick="editNegocio(null,'Compra')">+ Compra</button>`,
   estoque: () => `<button onclick="openForm('Novo item',F_EST,{},o=>DB.upsert('estoque',o))">+ Novo item</button>`,
-  relatorios: () => `<button onclick="window.print()">Imprimir</button>`,
+  relatorios: () => `<button onclick="exportarRelatorioPDF()">📄 Exportar PDF</button>`,
   usuarios: () => `<button onclick="openForm('Novo usuário',F_USU,{perfil:'Funcionário',ativo:'Sim'},o=>DB.upsert('usuarios',o))">+ Novo usuário</button>`,
 };
 
